@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 
+/// @brief Implementation of a 3d vector.
 struct Vec3
 {
 	float x, y, z;

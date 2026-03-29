@@ -1,8 +1,14 @@
 #pragma once
 #include "Mat4.hpp"
 
+/// @brief Class containing the implementation of some methods from glm. Matrices are column-major.
 class Math
 {
+	/// @brief Translates the give matrix m with the translation vector v.
+	///	Instead of defining the transformation matrix of v and then multiplying it by m, it directly updates the last column.
+	/// @param m Matrix to tranlate
+	/// @param v Tranlation vector
+	/// @return A new transformation matrix with the new transformation applied.
 	Mat4 translate(const Mat4 &m, const Vec3 &v)
 	{
 		Mat4 t = m;

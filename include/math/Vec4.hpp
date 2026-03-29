@@ -1,6 +1,7 @@
 #pragma once
 #include "Vec3.hpp"
 
+/// @brief Implementation of a 4d vector.
 struct Vec4
 {
 	float x, y, z, w;

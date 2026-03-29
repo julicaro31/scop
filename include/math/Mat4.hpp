@@ -1,6 +1,7 @@
 #pragma once
 #include "Vec4.hpp"
 
+/// @brief Implementation of a 4x4 column-major matrix.
 struct Mat4
 {
 	float m[4][4];
