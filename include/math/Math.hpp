@@ -59,4 +59,20 @@ class Math
 
 		return result;
 	}
+
+	/// @brief Scales the given matrix by the given scaling vector.
+	/// @param m Matrix to scale.
+	/// @param v Scaling vector.
+	/// @return A new transformation matrix with the scaling applied.
+	Mat4 scale(const Mat4 &m, const Vec3 &v)
+	{
+		Mat4 result;
+
+		result.m[0] = m.m[0] * v.x;
+		result.m[1] = m.m[1] * v.y;
+		result.m[2] = m.m[2] * v.z;
+		result.m[3] = m.m[3];
+
+		return result;
+	}
 };
