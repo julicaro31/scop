@@ -8,4 +8,14 @@ struct Vec4
 
 	Vec4(float x = 0.0f, float y = 0.0f, float z = 0.0f, float w = 0.0f) : x(x), y(y), z(z), w(w) {}
 	Vec4(Vec3 &vec3, float w) : x(vec3.x), y(vec3.y), z(vec3.z), w(w) {}
+
+	Vec4 operator+(const Vec4 &other) const
+	{
+		return Vec4(x + other.x, y + other.y, z + other.z, w + other.w);
+	}
+
+	Vec4 operator*(float s) const
+	{
+		return Vec4(x * s, y * s, z * s, w * s);
+	}
 };
