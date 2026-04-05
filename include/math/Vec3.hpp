@@ -50,7 +50,7 @@ struct Vec3
 		}
 	}
 
-	Vec3 Vec3::normalized() const
+	Vec3 normalized() const
 	{
 		float len = std::sqrt(x * x + y * y + z * z);
 
