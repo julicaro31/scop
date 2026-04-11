@@ -3,6 +3,7 @@
 
 #include <glad/glad.h>
 #include <string>
+#include "Mat4.hpp"
 
 class Shader
 {
@@ -14,6 +15,8 @@ public:
     ~Shader();
 
     void use() const;
+
+    void setMat4(const std::string &name, const Mat4 &mat) const;
 
     void setBool(const std::string &name, bool value) const;
     void setInt(const std::string &name, int value) const;

@@ -1,16 +1,12 @@
 CXX = c++
 CC  = cc
 
-CXXFLAGS = -Wall -Wextra -Werror -Iinclude
+CXXFLAGS = -Wall -Wextra -Werror -Iinclude -Iinclude/math -Iinclude/graphics -Iinclude/parser
 CFLAGS   = -Wall -Wextra -Werror -Iinclude
 
 LIBS = -lGL -lglfw -ldl -lX11 -lpthread -lXrandr -lXi
 
 CPP_SRCS = src/main.cpp src/graphics/shader.cpp
-
-# CPP_SRCS = src/main.cpp src/math/vec3.cpp src/math/mat4.cpp \
-#            src/graphics/shader.cpp src/parser/obj_parser.cpp \
-#            src/graphics/texture.cpp
 
 C_SRCS   = src/glad.c
 

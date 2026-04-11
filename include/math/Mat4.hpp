@@ -30,4 +30,6 @@ struct Mat4
 
 		return result;
 	}
+
+	const float *data() const { return &m[0].x; }
 };

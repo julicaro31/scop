@@ -38,6 +38,15 @@ void Shader::use() const
     glUseProgram(programID);
 }
 
+void Shader::setMat4(const std::string &name, const Mat4 &mat) const
+{
+    glUniformMatrix4fv(
+        glGetUniformLocation(programID, name.c_str()),
+        1,
+        GL_FALSE, // column-major, no transpose needed
+        mat.data());
+}
+
 // ============================================================================
 // UNIFORM SETTERS
 // Uniforms are variables you send from C++ to the shader.
