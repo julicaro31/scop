@@ -8,7 +8,7 @@ LIBS = -lGL -lglfw -ldl -lX11 -lpthread -lXrandr -lXi
 
 CPP_SRCS = src/main.cpp src/graphics/shader.cpp
 
-C_SRCS   = src/glad.c
+C_SRCS   = src/glad/glad.c
 
 CPP_OBJS = $(CPP_SRCS:.cpp=.o)
 C_OBJS   = $(C_SRCS:.c=.o)
