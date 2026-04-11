@@ -48,8 +48,11 @@ int main()
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        float time = glfwGetTime();
+
         // Model: position the triangle in the world
         Mat4 model(1.0f);
+        model = Math::rotate(model, time, Vec3(0.0f, 1.0f, 0.0f));
         model = Math::translate(model, Vec3(0.0f, 0.0f, 0.0f));
 
         // View: place the camera
