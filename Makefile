@@ -15,7 +15,7 @@ else
 	LIBS = -lGL -lglfw -ldl -lX11 -lpthread -lXrandr -lXi
 endif
 
-CPP_SRCS = src/main.cpp src/graphics/shader.cpp
+CPP_SRCS = src/main.cpp src/graphics/shader.cpp src/parser/ObjParser.cpp
 
 C_SRCS   = src/glad/glad.c
 
