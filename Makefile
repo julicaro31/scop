@@ -1,10 +1,19 @@
 CXX = c++
 CC  = cc
 
+UNAME_S := $(shell uname -s)
+
 CXXFLAGS = -Wall -Wextra -Werror -Iinclude -Iinclude/math -Iinclude/graphics -Iinclude/parser
 CFLAGS   = -Wall -Wextra -Werror -Iinclude
 
-LIBS = -lGL -lglfw -ldl -lX11 -lpthread -lXrandr -lXi
+ifeq ($(UNAME_S),Darwin)
+	GLFW_PREFIX := $(shell brew --prefix glfw 2>/dev/null)
+	CXXFLAGS += -I$(GLFW_PREFIX)/include
+	CFLAGS   += -I$(GLFW_PREFIX)/include
+	LIBS = -L$(GLFW_PREFIX)/lib -lglfw -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+else
+	LIBS = -lGL -lglfw -ldl -lX11 -lpthread -lXrandr -lXi
+endif
 
 CPP_SRCS = src/main.cpp src/graphics/shader.cpp
 
