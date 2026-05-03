@@ -1,9 +1,71 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <cmath>
 #include "shader.hpp"
 #include "ObjParser.hpp"
 #include "Math.hpp"
+
+// Camera state
+static Vec3 cameraPos(0.0f, 0.0f, 7.0f);
+static float yaw = -90.0f;
+static float pitch = 0.0f;
+
+// Model rotation state
+static float modelYaw = 0.0f;
+static float modelPitch = 0.0f;
+
+static float deltaTime = 0.0f;
+static float lastFrame = 0.0f;
+
+static Vec3 getCameraFront()
+{
+    float yawRad = toRadians(yaw);
+    float pitchRad = toRadians(pitch);
+    return Vec3(
+        cosf(pitchRad) * cosf(yawRad),
+        sinf(pitchRad),
+        cosf(pitchRad) * sinf(yawRad));
+}
+
+static void processInput(GLFWwindow *window)
+{
+    float speed = 2.5f * deltaTime;
+    float rotSpeed = 90.0f * deltaTime;
+
+    Vec3 front = getCameraFront();
+    Vec3 up(0.0f, 1.0f, 0.0f);
+    Vec3 right = front.cross(up).normalized();
+
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    {
+        glfwSetWindowShouldClose(window, true);
+    }
+
+    // Translation
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        cameraPos = cameraPos - front * speed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        cameraPos = cameraPos + front * speed;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        cameraPos = cameraPos + right * speed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        cameraPos = cameraPos - right * speed;
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+        cameraPos = cameraPos - up * speed;
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        cameraPos = cameraPos + up * speed;
+
+    // Model rotation (arrow keys)
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        modelYaw -= rotSpeed;
+    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        modelYaw += rotSpeed;
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        modelPitch -= rotSpeed;
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        modelPitch += rotSpeed;
+}
 
 int main(int argc, char **argv)
 {
@@ -24,7 +86,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    //Window setup
+    // Window setup
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -47,7 +109,7 @@ int main(int argc, char **argv)
 
     glEnable(GL_DEPTH_TEST);
 
-    //Upload mesh to GPU
+    // Upload mesh to GPU
     GLuint VAO, VBO, EBO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -77,25 +139,28 @@ int main(int argc, char **argv)
     float meshExtent = mesh.extent();
     float scaleFactor = (meshExtent > 0.0f) ? 1.0f / meshExtent : 1.0f;
 
-    //Render loop
+    // Render loop
     while (!glfwWindowShouldClose(window))
     {
+        float currentFrame = glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        processInput(window);
+
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        float time = glfwGetTime();
-
-        // Model: center the mesh at origin, scale it, then rotate
+        // Model: center at origin, scale, then rotate via arrow keys
         Mat4 model(1.0f);
-        model = Math::rotate(model, time, Vec3(0.0f, 1.0f, 0.0f));
+        model = Math::rotate(model, toRadians(modelYaw), Vec3(0.0f, 1.0f, 0.0f));
+        model = Math::rotate(model, toRadians(modelPitch), Vec3(1.0f, 0.0f, 0.0f));
         model = Math::scale(model, Vec3(scaleFactor, scaleFactor, scaleFactor));
         model = Math::translate(model, Vec3(-meshCenter.x, -meshCenter.y, -meshCenter.z));
 
-        // View: place the camera
-        Mat4 view = Math::lookAt(
-            Vec3(0.0f, 0.0f, 3.0f),
-            Vec3(0.0f, 0.0f, 0.0f),
-            Vec3(0.0f, 1.0f, 0.0f));
+        // View: camera with free movement
+        Vec3 front = getCameraFront();
+        Mat4 view = Math::lookAt(cameraPos, cameraPos + front, Vec3(0.0f, 1.0f, 0.0f));
 
         // Projection: perspective with 45° FOV
         Mat4 projection = Math::perspective(
