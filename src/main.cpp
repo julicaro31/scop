@@ -14,6 +14,7 @@ static float pitch = 0.0f;
 // Model rotation state
 static float modelYaw = 0.0f;
 static float modelPitch = 0.0f;
+static float modelRoll = 0.0f;
 
 static float deltaTime = 0.0f;
 static float lastFrame = 0.0f;
@@ -65,6 +66,10 @@ static void processInput(GLFWwindow *window)
         modelPitch -= rotSpeed;
     if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
         modelPitch += rotSpeed;
+    if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
+        modelRoll -= rotSpeed;
+    if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS)
+        modelRoll += rotSpeed;
 }
 
 int main(int argc, char **argv)
@@ -155,6 +160,7 @@ int main(int argc, char **argv)
         Mat4 model(1.0f);
         model = Math::rotate(model, toRadians(modelYaw), Vec3(0.0f, 1.0f, 0.0f));
         model = Math::rotate(model, toRadians(modelPitch), Vec3(1.0f, 0.0f, 0.0f));
+        model = Math::rotate(model, toRadians(modelRoll), Vec3(0.0f, 0.0f, 1.0f));
         model = Math::scale(model, Vec3(scaleFactor, scaleFactor, scaleFactor));
         model = Math::translate(model, Vec3(-meshCenter.x, -meshCenter.y, -meshCenter.z));
 
