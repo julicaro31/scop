@@ -2,7 +2,8 @@
 
 `scop` is a small 3D engine written from scratch in C++ that loads a Wavefront `.obj`
 file (a common 3D model format) and displays it in a window where you can rotate it
-and fly a camera around it. It uses **OpenGL 3.3** to talk to the graphics card, and
+and fly a camera around it, with each face shaded its own tone so the geometry reads
+clearly. It uses **OpenGL 3.3** to talk to the graphics card, and
 deliberately reimplements its own math library instead of depending on an external one.
 
 This document is written for someone who is comfortable with programming but new to
@@ -75,6 +76,12 @@ as an "index array": small integers that point at corners. The cube becomes 8 ve
 36 indices (12 triangles × 3) instead of 36 full vertices. This is called **indexed
 drawing**, and it's why this project has both a `vertices` array and an `indices` array.
 
+There's a tradeoff hiding here, though. Sharing vertices saves memory, but it means a
+corner vertex belongs to *several* triangles at once. That's fine for position, but it
+becomes a problem the moment you want to give each face its own color — a shared vertex
+has only one slot and can't hold two different colors. The fix, used for per-face coloring
+(see §9), is to *undo* the sharing, called **de-indexing**.
+
 ### The rendering pipeline and shaders
 
 When you tell the GPU to draw, your data flows through a fixed sequence of stages called
@@ -138,9 +145,8 @@ operating-system specific. Two small libraries fill the gaps:
 .
 ├── Makefile                      # Build script (auto-detects macOS vs Linux)
 ├── shaders/
-│   ├── basic.vert.glsl           # Early test vertex shader (no transform)
-│   ├── mvp.vert.glsl             # Real vertex shader (applies the MVP matrix)
-│   └── basic.frag.glsl           # Fragment shader (paints everything orange)
+│   ├── mvp.vert.glsl             # Real vertex shader (applies MVP, passes per-face color)
+│   └── basic.frag.glsl           # Fragment shader (paints each face its own grey)
 ├── include/
 │   ├── glad/  KHR/                # Bundled GLAD + Khronos platform headers
 │   ├── math/
@@ -196,7 +202,7 @@ Here is the entire journey of your model, from file to screen:
 
 ```
   model.obj  ──▶  ObjParser  ──▶  Mesh  ──▶  Renderer.uploadMesh()  ──▶  GPU memory
- (text file)     (parsing)    (CPU data)      (CPU → GPU transfer)      (VAO/VBO/EBO)
+ (text file)     (parsing)    (CPU data)      (CPU → GPU transfer)      (VAO/VBO)
 
                                                           │
                                                           ▼  (every frame)
@@ -210,7 +216,9 @@ Here is the entire journey of your model, from file to screen:
 ```
 
 The first row (parse → upload) happens **once** at startup. The rest happens **every
-single frame**, ~60 times a second.
+single frame**, ~60 times a second. During upload the mesh is **de-indexed** (see §9) so
+each triangle can carry its own color, which is why the GPU side uses just a VAO and VBO
+with no index buffer.
 
 ---
 
@@ -239,6 +247,10 @@ Helper methods:
   origin so it rotates around its middle instead of an arbitrary corner.
 - `extent()` → returns half the longest side of that bounding box. Used to scale any
   model — big or small — down to roughly the same on-screen size.
+- `expandedColoredVertices()` → produces the GPU-ready array `uploadMesh` actually ships.
+  It **de-indexes** the mesh (writes a private copy of each triangle's three vertices) and
+  tags every triangle with a single grey, laid out as `x, y, z, r, g, b` per vertex. The
+  reasoning is in the per-face coloring discussion in §9.
 
 A **bounding box** is just `(minX, minY, minZ)` to `(maxX, maxY, maxZ)` computed by
 sweeping through every vertex. Both helpers do that sweep.
@@ -298,25 +310,37 @@ the camera and only draw a new pixel if it's *closer* than what's already there.
 Without it, triangles drawn later would paint over closer ones and the model would look
 inside-out and scrambled.
 
-**`uploadMesh`** — the CPU→GPU transfer. It creates three objects:
+**`uploadMesh`** — the CPU→GPU transfer. It first calls `mesh.expandedColoredVertices()`
+to get a **de-indexed**, per-face-colored float array (see §9), then creates two objects:
 
-- **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats.
-- **EBO (Element Buffer Object)** — a block of GPU memory holding the index array.
-  ("Element" is OpenGL's word for "index.")
+- **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats,
+  now six per vertex: position `x, y, z` followed by color `r, g, b`.
 - **VAO (Vertex Array Object)** — *not* data, but a small recording of "how to interpret
   the VBO." It remembers which buffer to read and the layout of the data. Once set up,
   you just bind the VAO before drawing and OpenGL recalls all those settings.
 
-The layout is described by:
+Because the data is de-indexed, there's **no EBO** anymore — the vertices are already in
+draw order, so nothing needs to point into them.
+
+The layout now describes **two** attributes packed into each vertex:
 
 ```cpp
-glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+// location 0: position — 3 floats, stride 6 floats, offset 0
+glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 glEnableVertexAttribArray(0);
+
+// location 1: color — 3 floats, stride 6 floats, offset 3 floats in
+glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                      (void*)(3 * sizeof(float)));
+glEnableVertexAttribArray(1);
 ```
 
-Read this as: "attribute **location 0** is made of **3 floats**, the stride from one
-vertex to the next is **3 floats**, starting at offset **0**." That `location 0` is the
-same `0` you'll see in the vertex shader's `layout (location = 0)`. They must match.
+Read the first as: "attribute **location 0** is **3 floats**, the **stride** from one
+vertex to the next is **6 floats** (each vertex is now position + color), starting at
+**offset 0**." The second says color is at **location 1**, same stride, but starts **3
+floats in** — right after the position. Those `location` numbers are the same ones you'll
+see in the vertex shader's `layout (location = 0)` and `layout (location = 1)`. They must
+match.
 
 `GL_STATIC_DRAW` is a hint telling the driver "this data won't change after upload," so
 it can optimize storage.
@@ -332,18 +356,20 @@ glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 **`draw`** — binds the VAO and issues the actual draw command:
 
 ```cpp
-glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
+glDrawArrays(GL_TRIANGLES, 0, _vertexCount);
 ```
 
-"Draw `_indexCount` indices as triangles, reading them as unsigned ints from the bound
-EBO." This is the single call that triggers the whole GPU pipeline.
+"Draw `_vertexCount` vertices as triangles, reading them straight through in order."
+Because the mesh is de-indexed there's no EBO to consult — this used to be a
+`glDrawElements` call over an index array. This is the single call that triggers the whole
+GPU pipeline.
 
 **`endFrame`** — `glfwSwapBuffers` shows the finished frame, and `glfwPollEvents`
 processes keyboard/window events. (The window is **double-buffered**: you draw to a
 hidden "back buffer" and swap it to the visible "front buffer" at the end, so you never
 see a half-drawn frame.)
 
-**Destructor** — deletes the VAO/VBO/EBO and terminates GLFW. The class also deletes its
+**Destructor** — deletes the VAO/VBO and terminates GLFW. The class also deletes its
 copy constructor and assignment operator, because copying GPU handles would be a bug
 (two objects would try to free the same GPU resource).
 
@@ -505,26 +531,65 @@ A few notes on the pieces:
 
 ```glsl
 // mvp.vert.glsl — runs per vertex
-layout (location = 0) in vec3 aPos;   // matches glVertexAttribPointer(0, ...)
-uniform mat4 mvp;                      // set from C++ via shader.setMat4("mvp", ...)
+layout (location = 0) in vec3 aPos;    // matches glVertexAttribPointer(0, ...)
+layout (location = 1) in vec3 aColor;  // matches glVertexAttribPointer(1, ...)
+uniform mat4 mvp;                       // set from C++ via shader.setMat4("mvp", ...)
+out vec3 vColor;                        // handed down to the fragment shader
 void main() {
+    vColor = aColor;                      // pass the color straight through
     gl_Position = mvp * vec4(aPos, 1.0);  // project this vertex onto the screen
 }
 ```
 
 ```glsl
 // basic.frag.glsl — runs per pixel
+in vec3 vColor;       // color coming from the vertex shader
 out vec4 FragColor;
 void main() {
-    FragColor = vec4(1.0, 0.5, 0.2, 1.0);  // solid orange, RGBA in 0..1
+    FragColor = vec4(vColor, 1.0);  // paint the pixel that color, RGBA in 0..1
 }
 ```
 
-The fragment shader is currently trivial — every pixel of the model is the same orange.
-There's no lighting yet, so the model reads as a flat silhouette; shape only becomes
-obvious as you rotate it. (`basic.vert.glsl` is a leftover from an earlier stage that
-drew a vertex without any transform — it's not used by the final program, which uses
-`mvp.vert.glsl`.)
+Each face of the model carries its own grey, so its surfaces read even before you rotate it. 
+(`basic.vert.glsl`is a leftover from an earlier stage that drew a vertex without any transform 
+— it's not used by the final program, which uses `mvp.vert.glsl`.)
+
+### Per-face coloring
+
+Giving each face its own shade is what lets you perceive the model's surfaces without a
+lighting model. It rests on three ideas that work together.
+
+**Color is a per-vertex attribute, not a per-face one.** A GPU can attach data to each
+*vertex* (like position) or send one value for the whole *draw call* (a uniform). "Per
+face" is neither. And because the original mesh uses indexed drawing, a single vertex is
+*shared* by every triangle that touches it — so it has only one color slot and can't be
+one shade for one face and a different shade for its neighbor.
+
+**De-indexing resolves the conflict.** `Mesh::expandedColoredVertices()` removes the
+sharing: it walks the triangles and writes out a fresh, private copy of each triangle's
+three vertices, so every triangle owns its corners outright. Now those three vertices can
+all be given the *same* color and there's nothing to fight over. The price is memory
+(roughly three vertices per triangle, since nothing is reused).
+
+**The color flows down the pipeline as a "varying."** It starts as the `aColor` attribute
+(location 1), the vertex shader copies it into `out vec3 vColor`, and the fragment shader
+reads it as `in vec3 vColor`. A value passed this way from the vertex stage to the
+fragment stage is called a **varying**. Normally the GPU interpolates a varying across the
+triangle, blending the three corners — but since all three corners hold the *same* color
+here, there's nothing to blend and the face comes out perfectly flat.
+
+**Choosing the shades.** The grey for triangle *i* is `0.25 + 0.60 * frac(i * φ)`, where
+`φ ≈ 0.618` is the golden-ratio conjugate. Multiplying the index by an irrational number
+and keeping only the fractional part scatters *neighboring* triangles to very different
+shades — instead of a near-invisible gradient — while the `0.25`–`0.85` range keeps them
+out of pure black and white. It's fully deterministic, so a given triangle gets the same
+shade on every run. (To switch from greys to full color later, you'd feed that same
+scrambled value into a hue instead of into all three channels equally.)
+
+One subtlety: this colors per *triangle*, so a face that was a quad in the `.obj` shows up
+as two slightly different shades split along its triangulation diagonal. Coloring per
+*original face* instead would require the parser to remember which triangles came from the
+same `f` line — a small, additive change on top of what's here.
 
 ---
 
@@ -581,13 +646,13 @@ motion is measured in "units per second" and feels identical everywhere. This is
 
 Knowing what's *absent* is as instructive as knowing what's present:
 
-- **No colors, normals, or texture coordinates** are read from the `.obj` — only `v`
-  (positions) and `f` (faces). Each vertex is just a position; `vn` and `vt` lines are
-  ignored.
-- **No lighting.** The fragment shader outputs a constant orange, so the model has no
-  shading and looks flat until rotated.
-- **No per-face coloring** and **no textures** yet (these appear later in the
-  development plan).
+- **No normals or texture coordinates** are read from the `.obj` — only `v` (positions)
+  and `f` (faces). Vertex colors are *generated* (per-face greys), not read from the file;
+  `vn` and `vt` lines are ignored.
+- **No lighting.** Faces are shaded with arbitrary per-face greys, not by any light
+  source, so there are no real highlights or shadows — the greys just make adjacent
+  surfaces distinguishable.
+- **No textures** yet (texture loading is the next step in the development plan).
 - **Fan triangulation assumes convex faces** — concave polygons would triangulate
   incorrectly, though these are rare in practice.
 - The window size and projection aspect ratio are **hardcoded** to 800×600 and don't
@@ -604,10 +669,17 @@ Knowing what's *absent* is as instructive as knowing what's present:
 - **Shader** — a small GPU program (vertex shader = position, fragment shader = color).
 - **GLSL** — the C-like language shaders are written in.
 - **VAO / VBO / EBO** — GPU objects: VAO records *how* to read vertex data; VBO holds the
-  vertex floats; EBO holds the indices.
+  vertex floats; EBO holds the indices. Since the mesh is de-indexed for per-face color,
+  the current build uses only a VAO and VBO.
 - **Uniform** — a variable sent from CPU to a shader, constant for one draw call (e.g.
   the MVP matrix).
-- **Attribute** — per-vertex input to the vertex shader (e.g. position at location 0).
+- **Attribute** — per-vertex input to the vertex shader (e.g. position at location 0,
+  per-face color at location 1).
+- **Varying** — a value the vertex shader outputs and the fragment shader receives,
+  interpolated across the triangle by default (e.g. the per-face color `vColor`).
+- **De-indexing (unwelding)** — expanding indexed geometry so each triangle owns a private
+  copy of its three vertices instead of sharing them; needed so each face can carry its
+  own color.
 - **MVP** — Model × View × Projection, the combined transform from 3D model space to 2D
   screen space.
 - **Model / World / View / Clip space** — successive coordinate systems a vertex passes

@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 Renderer::Renderer(int width, int height, const char *title)
-    : _window(nullptr), _VAO(0), _VBO(0), _EBO(0), _indexCount(0)
+    : _window(nullptr), _VAO(0), _VBO(0), _vertexCount(0)
 {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -32,35 +32,33 @@ Renderer::~Renderer()
         glDeleteVertexArrays(1, &_VAO);
     if (_VBO)
         glDeleteBuffers(1, &_VBO);
-    if (_EBO)
-        glDeleteBuffers(1, &_EBO);
     glfwTerminate();
 }
 
 void Renderer::uploadMesh(const Mesh &mesh)
 {
-    _indexCount = static_cast<GLsizei>(mesh.indices.size());
+    std::vector<float> data = mesh.expandedColoredVertices();
+    _vertexCount = static_cast<GLsizei>(data.size() / 6); // 6 floats per vertex
 
     glGenVertexArrays(1, &_VAO);
     glGenBuffers(1, &_VBO);
-    glGenBuffers(1, &_EBO);
 
     glBindVertexArray(_VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, _VBO);
     glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertices.size() * sizeof(float),
-                 mesh.vertices.data(),
+                 data.size() * sizeof(float),
+                 data.data(),
                  GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                 mesh.indices.size() * sizeof(unsigned int),
-                 mesh.indices.data(),
-                 GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+    // location 0: position (3 floats) at offset 0
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
+
+    // location 1: color (3 floats) at offset 3 floats into each vertex
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (void *)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 }
 
 void Renderer::beginFrame()
@@ -72,7 +70,7 @@ void Renderer::beginFrame()
 void Renderer::draw() const
 {
     glBindVertexArray(_VAO);
-    glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
+    glDrawArrays(GL_TRIANGLES, 0, _vertexCount);
 }
 
 void Renderer::endFrame()

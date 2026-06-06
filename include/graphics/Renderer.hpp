@@ -24,8 +24,7 @@ private:
     GLFWwindow *_window;
     GLuint _VAO;
     GLuint _VBO;
-    GLuint _EBO;
-    GLsizei _indexCount;
+    GLsizei _vertexCount;
 };
 
 #endif

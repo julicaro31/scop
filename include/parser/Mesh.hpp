@@ -97,4 +97,34 @@ struct Mesh
 
         return maxDim * 0.5f;
     }
+
+    /// @brief Produces a de-indexed, per-triangle-colored vertex array.
+    ///        Layout per vertex: x, y, z, r, g, b (6 floats). No index array needed.
+    std::vector<float> expandedColoredVertices() const
+    {
+        std::vector<float> out;
+        out.reserve(indices.size() * 6);
+
+        for (size_t i = 0; i + 2 < indices.size(); i += 3)
+        {
+            size_t triIndex = i / 3;
+
+            float t = static_cast<float>(triIndex) * 0.61803398875f;
+            t = t - std::floor(t);          // fractional part, [0, 1)
+            float grey = 0.25f + 0.60f * t; // [0.25, 0.85]
+
+            for (int j = 0; j < 3; ++j)
+            {
+                unsigned int v = indices[i + j];
+                out.push_back(vertices[v * 3 + 0]);
+                out.push_back(vertices[v * 3 + 1]);
+                out.push_back(vertices[v * 3 + 2]);
+                out.push_back(grey);
+                out.push_back(grey);
+                out.push_back(grey);
+            }
+        }
+
+        return out;
+    }
 };
