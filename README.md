@@ -1,0 +1,628 @@
+# scop — A 3D OBJ Model Viewer
+
+`scop` is a small 3D engine written from scratch in C++ that loads a Wavefront `.obj`
+file (a common 3D model format) and displays it in a window where you can rotate it
+and fly a camera around it. It uses **OpenGL 3.3** to talk to the graphics card, and
+deliberately reimplements its own math library instead of depending on an external one.
+
+This document is written for someone who is comfortable with programming but new to
+graphics and OpenGL. It explains the concepts as it documents the code, so you can use
+it both as a reference and as a study guide.
+
+---
+
+## Table of Contents
+
+1. [What problem does this solve?](#1-what-problem-does-this-solve)
+2. [Graphics crash course (read this first)](#2-graphics-crash-course-read-this-first)
+3. [The libraries: GLFW and GLAD](#3-the-libraries-glfw-and-glad)
+4. [Project layout](#4-project-layout)
+5. [How to build and run](#5-how-to-build-and-run)
+6. [The big picture: the data flow](#6-the-big-picture-the-data-flow)
+7. [Component-by-component walkthrough](#7-component-by-component-walkthrough)
+8. [The math library explained](#8-the-math-library-explained)
+9. [The MVP pipeline (the heart of 3D)](#9-the-mvp-pipeline-the-heart-of-3d)
+10. [The render loop, line by line](#10-the-render-loop-line-by-line)
+11. [Controls](#11-controls)
+12. [Current limitations / what's not done yet](#12-current-limitations--whats-not-done-yet)
+13. [Glossary](#13-glossary)
+
+---
+
+## 1. What problem does this solve?
+
+A 3D model on disk is just a list of numbers: points in space and instructions for how
+to connect them into triangles. A screen, on the other hand, is a flat grid of pixels.
+
+The job of this program is the bridge between those two: take a 3D model (the `.obj`
+file), figure out where each of its points lands on the 2D screen given a virtual
+camera, and color in the pixels. Doing that 60 times per second, while letting the user
+spin the model and move the camera, is what "real-time 3D rendering" means.
+
+---
+
+## 2. Graphics crash course (read this first)
+
+If you've never touched graphics programming, these ideas are the foundation. Everything
+else in the codebase is an implementation detail of these concepts.
+
+### The GPU is a separate computer
+
+Your **CPU** runs your C++ code. The **GPU** (graphics card) is a separate processor
+optimized for doing the *same simple math on thousands of data points in parallel* —
+exactly what rendering needs. The two have separate memory.
+
+A huge part of graphics programming is just **shipping data from CPU memory to GPU
+memory** and then telling the GPU "now draw with it." You don't draw pixels one at a
+time yourself; you hand the GPU a description and it does the drawing.
+
+### Everything is triangles
+
+Any 3D shape — a sphere, a teapot, a dragon — is approximated as a mesh of flat
+**triangles**. Triangles are used because they're always flat and always convex, which
+makes the math simple and fast. A model is therefore just:
+
+- a list of **vertices** (points in 3D space, each an `x, y, z`), and
+- a list of **triangles**, where each triangle is three references into that vertex list.
+
+### Vertices and indices (and why indices exist)
+
+Imagine a cube. It has 8 corners, but 12 triangles (2 per face × 6 faces). If you stored
+each triangle as three full `x,y,z` points, you'd repeat each corner many times.
+
+Instead we store the 8 corners **once** in a "vertex array," and then store the triangles
+as an "index array": small integers that point at corners. The cube becomes 8 vertices +
+36 indices (12 triangles × 3) instead of 36 full vertices. This is called **indexed
+drawing**, and it's why this project has both a `vertices` array and an `indices` array.
+
+### The rendering pipeline and shaders
+
+When you tell the GPU to draw, your data flows through a fixed sequence of stages called
+the **rendering pipeline**. Two of those stages are programmable — you write tiny
+programs for them called **shaders**, in a C-like language called **GLSL**:
+
+1. **Vertex shader** — runs *once per vertex*. Its job is to decide where that vertex
+   ends up on screen. This is where the 3D-to-2D projection math happens.
+2. **Rasterizer** (not programmable) — takes the three projected corners of a triangle
+   and figures out which pixels fall inside it.
+3. **Fragment shader** — runs *once per pixel* covered by a triangle. Its job is to
+   decide the **color** of that pixel.
+
+So: vertex shader = *position*, fragment shader = *color*. You'll see exactly these two
+shaders in the `shaders/` folder.
+
+### Shaders are compiled at runtime
+
+Unlike your C++ (compiled once by your compiler), shaders are compiled **while the
+program runs**, by the GPU driver. The reason: every GPU has a different internal
+instruction set, so the GLSL source is compiled on the machine it actually runs on. This
+is why the `Shader` class reads `.glsl` text files and compiles them during startup.
+
+### OpenGL is a giant state machine
+
+This is the single most surprising thing for newcomers. OpenGL functions mostly don't
+take an object and operate on it. Instead, you **"bind"** an object to make it the
+"currently active" one, and subsequent calls implicitly affect whatever is bound. For
+example:
+
+```cpp
+glBindVertexArray(VAO);     // "this VAO is now the active one"
+glDrawElements(...);        // draws using whatever VAO is currently bound
+```
+
+There's no `VAO.draw()`. The bound state is global and hidden. Keep this in mind whenever
+the code calls a `glBind*` function — it's setting up context for the calls that follow.
+
+---
+
+## 3. The libraries: GLFW and GLAD
+
+OpenGL by itself doesn't know how to open a window or read your keyboard — those are
+operating-system specific. Two small libraries fill the gaps:
+
+- **GLFW** — creates the window, sets up the OpenGL "context" (the canvas OpenGL draws
+  onto), and reports input (keyboard, mouse, window-close events). This is the only
+  external dependency you have to install.
+- **GLAD** — a "function loader." On modern systems, OpenGL functions aren't available
+  directly; you have to ask the graphics driver for the address of each one at runtime.
+  GLAD does this for you. It's **bundled** in the repo (`src/glad/glad.c`,
+  `include/glad/glad.h`), so you don't install it. The line
+  `gladLoadGLLoader(...)` in `Renderer` is what performs this loading; until it runs,
+  calling any `gl*` function would crash.
+
+---
+
+## 4. Project layout
+
+```
+.
+├── Makefile                      # Build script (auto-detects macOS vs Linux)
+├── shaders/
+│   ├── basic.vert.glsl           # Early test vertex shader (no transform)
+│   ├── mvp.vert.glsl             # Real vertex shader (applies the MVP matrix)
+│   └── basic.frag.glsl           # Fragment shader (paints everything orange)
+├── include/
+│   ├── glad/  KHR/                # Bundled GLAD + Khronos platform headers
+│   ├── math/
+│   │   ├── Vec3.hpp               # 3D vector
+│   │   ├── Vec4.hpp               # 4D vector
+│   │   ├── Mat4.hpp               # 4×4 matrix
+│   │   └── Math.hpp               # translate/rotate/scale/perspective/lookAt + helpers
+│   ├── graphics/
+│   │   ├── Renderer.hpp           # Window + OpenGL buffers + draw calls
+│   │   ├── Shader.hpp             # GLSL loading/compiling/linking
+│   │   ├── Camera.hpp             # Fly-camera (view matrix)
+│   │   └── ModelTransform.hpp     # Per-model rotation/scale/centering
+│   └── parser/
+│       ├── Mesh.hpp               # The CPU-side model data + bounding-box helpers
+│       └── ObjParser.hpp          # .obj file reader
+└── src/
+    ├── main.cpp                   # Entry point + render loop
+    ├── glad/glad.c                # Bundled GLAD implementation
+    ├── graphics/                  # Renderer.cpp, Shader.cpp, Camera.cpp
+    └── parser/ObjParser.cpp       # Parser implementation
+```
+
+The code is organized into three conceptual modules: **parser** (file → data),
+**math** (linear algebra), and **graphics** (data → screen). `main.cpp` wires them
+together.
+
+---
+
+## 5. How to build and run
+
+```bash
+make                  # compiles everything into a binary called "scop"
+./scop models/teapot.obj   # run it on an .obj file
+make re               # clean rebuild
+make fclean           # remove the binary and all .o object files
+make clean            # remove just the .o object files
+```
+
+**Requirements:** GLFW 3 (install via Homebrew on macOS, or your distro's package
+manager on Linux) and a GPU that supports OpenGL 3.3.
+
+The `Makefile` detects your OS with `uname -s` and links the right libraries:
+on **macOS** it links GLFW from Homebrew plus the `OpenGL`, `Cocoa`, `IOKit`, and
+`CoreVideo` frameworks; on **Linux** it links `-lGL -lglfw -ldl -lX11 -lpthread
+-lXrandr -lXi`. It compiles the C++ sources and the single C source (`glad.c`)
+separately, then links them. Compiler flags are strict: `-Wall -Wextra -Werror`.
+
+---
+
+## 6. The big picture: the data flow
+
+Here is the entire journey of your model, from file to screen:
+
+```
+  model.obj  ──▶  ObjParser  ──▶  Mesh  ──▶  Renderer.uploadMesh()  ──▶  GPU memory
+ (text file)     (parsing)    (CPU data)      (CPU → GPU transfer)      (VAO/VBO/EBO)
+
+                                                          │
+                                                          ▼  (every frame)
+   Camera + ModelTransform + projection  ──▶  MVP matrix  ──▶  sent to vertex shader
+                                                          │
+                                                          ▼
+                       GPU runs vertex shader → rasterizer → fragment shader
+                                                          │
+                                                          ▼
+                                            pixels appear in the window
+```
+
+The first row (parse → upload) happens **once** at startup. The rest happens **every
+single frame**, ~60 times a second.
+
+---
+
+## 7. Component-by-component walkthrough
+
+### 7.1 `Mesh` (`include/parser/Mesh.hpp`)
+
+The CPU-side representation of a model. It's a plain struct with two arrays:
+
+```cpp
+struct Mesh {
+    std::vector<float>        vertices;  // flat: [x0,y0,z0, x1,y1,z1, ...]
+    std::vector<unsigned int> indices;   // 3 per triangle, indexing into vertices
+};
+```
+
+Note that `vertices` is a **flat array of floats**, not an array of `Vec3` objects.
+That's because the GPU wants a contiguous block of raw floats — that's the format
+`uploadMesh` ships over. Three floats = one vertex.
+
+Helper methods:
+- `vertexCount()` → `vertices.size() / 3`
+- `triangleCount()` → `indices.size() / 3`
+- `center()` → finds the model's **axis-aligned bounding box** (the smallest box that
+  contains all points) and returns its center point. Used to recenter the model on the
+  origin so it rotates around its middle instead of an arbitrary corner.
+- `extent()` → returns half the longest side of that bounding box. Used to scale any
+  model — big or small — down to roughly the same on-screen size.
+
+A **bounding box** is just `(minX, minY, minZ)` to `(maxX, maxY, maxZ)` computed by
+sweeping through every vertex. Both helpers do that sweep.
+
+### 7.2 `ObjParser` (`src/parser/ObjParser.cpp`)
+
+Reads a `.obj` text file and produces a `Mesh`. The `.obj` format is line-based plain
+text. This parser handles two line types and ignores the rest:
+
+- `v x y z` — a vertex position. Pushed into a temporary `positions` list.
+- `f a b c ...` — a face, listing vertices that form a polygon.
+- `#` — a comment, skipped. Anything else (normals `vn`, texture coords `vt`,
+  materials, groups) is silently ignored.
+
+Two details worth understanding:
+
+**1-based and negative indices.** In `.obj`, vertex indices start at **1**, not 0. They
+can also be **negative**, meaning "count backwards from the most recent vertex." The
+parser normalizes both into 0-based indices:
+
+```cpp
+idx = idx >= 0 ? idx - 1 : idx + positions.size();
+```
+
+A face token can also look like `3/1/2` (position/texture/normal). `parseFaceVertex`
+just reads the part before the first `/` and throws away the rest, because this viewer
+only cares about positions.
+
+**Fan triangulation.** A face can have more than 3 vertices (a quad has 4, etc.), but the
+GPU only draws triangles. The parser splits an N-sided polygon into a "fan" of triangles
+all sharing the first vertex:
+
+```
+polygon  v0 v1 v2 v3 v4   →   triangles (v0,v1,v2) (v0,v2,v3) (v0,v3,v4)
+```
+
+That's the loop `for (i = 1; i + 1 < faceIndices.size(); ++i)`. It works correctly for
+**convex** polygons (the usual case in `.obj` files).
+
+The parser throws a `std::runtime_error` if the file can't be opened or has no geometry,
+and prints warnings for malformed lines without crashing.
+
+### 7.3 `Renderer` (`src/graphics/Renderer.cpp`)
+
+Owns the window and all GPU resources. This is where most of the raw OpenGL lives.
+
+**Constructor** — initializes GLFW, requests an OpenGL **3.3 Core** context (Core =
+modern OpenGL, no deprecated functions), creates the window, loads OpenGL functions via
+GLAD, and enables **depth testing**:
+
+```cpp
+glEnable(GL_DEPTH_TEST);
+```
+
+Depth testing is critical for 3D: it makes the GPU remember how far each pixel is from
+the camera and only draw a new pixel if it's *closer* than what's already there.
+Without it, triangles drawn later would paint over closer ones and the model would look
+inside-out and scrambled.
+
+**`uploadMesh`** — the CPU→GPU transfer. It creates three objects:
+
+- **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats.
+- **EBO (Element Buffer Object)** — a block of GPU memory holding the index array.
+  ("Element" is OpenGL's word for "index.")
+- **VAO (Vertex Array Object)** — *not* data, but a small recording of "how to interpret
+  the VBO." It remembers which buffer to read and the layout of the data. Once set up,
+  you just bind the VAO before drawing and OpenGL recalls all those settings.
+
+The layout is described by:
+
+```cpp
+glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+glEnableVertexAttribArray(0);
+```
+
+Read this as: "attribute **location 0** is made of **3 floats**, the stride from one
+vertex to the next is **3 floats**, starting at offset **0**." That `location 0` is the
+same `0` you'll see in the vertex shader's `layout (location = 0)`. They must match.
+
+`GL_STATIC_DRAW` is a hint telling the driver "this data won't change after upload," so
+it can optimize storage.
+
+**`beginFrame`** — clears the screen to dark gray and clears the depth buffer, wiping the
+previous frame so you start fresh:
+
+```cpp
+glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+```
+
+**`draw`** — binds the VAO and issues the actual draw command:
+
+```cpp
+glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
+```
+
+"Draw `_indexCount` indices as triangles, reading them as unsigned ints from the bound
+EBO." This is the single call that triggers the whole GPU pipeline.
+
+**`endFrame`** — `glfwSwapBuffers` shows the finished frame, and `glfwPollEvents`
+processes keyboard/window events. (The window is **double-buffered**: you draw to a
+hidden "back buffer" and swap it to the visible "front buffer" at the end, so you never
+see a half-drawn frame.)
+
+**Destructor** — deletes the VAO/VBO/EBO and terminates GLFW. The class also deletes its
+copy constructor and assignment operator, because copying GPU handles would be a bug
+(two objects would try to free the same GPU resource).
+
+### 7.4 `Shader` (`src/graphics/Shader.cpp`)
+
+Turns GLSL text files into a usable GPU **shader program**. The constructor:
+
+1. Reads the vertex and fragment shader source from disk (`readFile`).
+2. Compiles each one (`compileShader` → `glCreateShader`, `glShaderSource`,
+   `glCompileShader`).
+3. Links them together into one **program** (`linkProgram` → `glCreateProgram`,
+   `glAttachShader`, `glLinkProgram`). A program is the combined, ready-to-run
+   vertex+fragment pair.
+4. Deletes the individual shader objects (the linked program no longer needs them).
+
+It checks for errors at each step (`checkCompileErrors`, `checkLinkErrors`) and prints
+the GPU's error log — invaluable, because a typo in GLSL otherwise fails silently.
+
+**`use()`** calls `glUseProgram` to make this the active program (state machine again).
+
+**Uniform setters** (`setMat4`, `setFloat`, `setInt`, `setBool`) — a **uniform** is a
+variable you send from C++ into a shader that stays constant for an entire draw call
+(as opposed to per-vertex attributes). The MVP matrix is sent this way. Each setter
+finds the variable's location by name with `glGetUniformLocation` and uploads the value
+with a `glUniform*` call. `setMat4` is the one this project actually uses every frame.
+
+### 7.5 `Camera` (`src/graphics/Camera.cpp`)
+
+A first-person "fly" camera. It stores a `_position` and two angles: **`_yaw`** (turning
+left/right) and **`_pitch`** (looking up/down). From those angles `getFront()` computes a
+direction vector using trigonometry — the standard spherical-to-Cartesian conversion.
+
+`processInput` reads WASD/QE keys and moves the position along the camera's own axes.
+The `right` vector is computed as `front × up` (a **cross product**, which gives a vector
+perpendicular to both). Movement is scaled by `deltaTime` so it's frame-rate independent
+(more on that below).
+
+`getViewMatrix()` calls `Math::lookAt(position, position + front, up)` to build the
+**view matrix** — the transform that moves the whole world so the camera sits at the
+origin looking down −Z. (See the MVP section.)
+
+### 7.6 `ModelTransform` (`include/graphics/ModelTransform.hpp`)
+
+A header-only struct controlling the *model's* orientation, separate from the camera. It
+stores `yaw`, `pitch`, `roll` (rotations about the Y, X, and Z axes), driven by the arrow
+keys and Z/X.
+
+`getModelMatrix(center, scale)` builds the **model matrix** by composing several
+transforms. Because matrix multiplication applies **right-to-left** to a vertex, the
+operations actually happen to the model in this order:
+
+1. **Translate by −center** → move the model so its bounding-box center sits on the origin.
+2. **Scale** → shrink/grow it to unit size.
+3. **Rotate** by roll, then pitch, then yaw.
+
+Recentering first is what makes the model spin around its own middle rather than drifting
+in a circle around some far-off point.
+
+---
+
+## 8. The math library explained
+
+The project rolls its own linear algebra (a stripped-down clone of the popular GLM
+library) so it has zero math dependencies. Everything is **column-major**, the
+convention OpenGL expects.
+
+### `Vec3` (`include/math/Vec3.hpp`)
+
+A 3D vector with `x, y, z` and the usual operations:
+- `+`, `-`, `* scalar` — component-wise arithmetic.
+- `dot(v)` — the **dot product**, a single number measuring how aligned two vectors are.
+- `cross(v)` — the **cross product**, a vector perpendicular to both inputs (used to find
+  the camera's "right" direction).
+- `length()`, `normalize()`, `normalized()` — magnitude and scaling to unit length. A
+  *normalized* vector keeps direction but has length 1, which is what you want for pure
+  direction vectors.
+
+### `Vec4` (`include/math/Vec4.hpp`)
+
+A 4D vector `x, y, z, w`. The fourth component `w` is the key to 3D graphics math (see
+"homogeneous coordinates" below). It can be built from a `Vec3` plus a `w` value.
+
+### `Mat4` (`include/math/Mat4.hpp`)
+
+A 4×4 matrix stored as **four `Vec4` columns**: `Vec4 m[4]`. Why 4×4 and not 3×3? Because
+a 3×3 matrix can rotate and scale, but **cannot translate** (move) a point. By going up to
+4 dimensions with that extra `w` component — called **homogeneous coordinates** — a single
+4×4 matrix can encode rotation, scaling, *and* translation all at once. That uniformity is
+why all of 3D graphics is built on 4×4 matrices.
+
+The struct provides:
+- A constructor `Mat4(n)` that builds a diagonal matrix; `Mat4(1.0f)` is the **identity**
+  matrix (the "do nothing" transform, the matrix equivalent of multiplying by 1).
+- `operator*(Vec4)` — transforms a vector by the matrix.
+- `operator*(Mat4)` — composes two transforms into one. **Order matters**: `A * B` means
+  "apply B first, then A."
+- `data()` — returns a raw `const float*` pointer so the matrix can be handed straight to
+  OpenGL via `glUniformMatrix4fv`.
+
+### `Math` (`include/math/Math.hpp`)
+
+A class of static functions plus the helpers `toRadians`/`toDegrees` and the constant
+`PI`. (Trig functions work in radians, but humans think in degrees, hence the converters.)
+
+- **`translate(m, v)`** — adds a movement to a matrix by updating its last column.
+- **`rotate(m, angle, axis)`** — rotates around an arbitrary axis using the standard
+  axis-angle rotation formula (Rodrigues' formula expanded into matrix form).
+- **`scale(m, v)`** — multiplies the matrix's basis columns to resize.
+- **`perspective(fov, aspect, near, far)`** — builds the **projection matrix** (next
+  section).
+- **`lookAt(eye, center, up)`** — builds the **view matrix** by constructing an
+  orthonormal basis (right/up/forward) from where the camera is and what it looks at.
+
+---
+
+## 9. The MVP pipeline (the heart of 3D)
+
+This is the single most important concept in the whole project. To get a 3D point onto
+your 2D screen, you pass it through **three matrices**, conventionally called
+**M**, **V**, and **P**, multiplied together into one **MVP** matrix.
+
+Think of each matrix as a change of "frame of reference" — a different coordinate space:
+
+| Matrix | Name | What it does | "Space" you end up in |
+|--------|------|--------------|------------------------|
+| **M** | Model | Positions/orients/sizes the model in the world | **World space** |
+| **V** | View | Moves the world so the camera is at the origin | **View (camera) space** |
+| **P** | Projection | Applies perspective; far things shrink | **Clip space** |
+
+In code (`main.cpp`):
+
+```cpp
+Mat4 mvp = projection * camera.getViewMatrix() * model.getModelMatrix(meshCenter, scaleFactor);
+```
+
+Because matrices apply right-to-left, a vertex experiences: **Model → View →
+Projection**, exactly the table order. The combined `mvp` is then sent to the vertex
+shader as a uniform, and the shader transforms every vertex with one multiplication:
+
+```glsl
+// shaders/mvp.vert.glsl
+gl_Position = mvp * vec4(aPos, 1.0);
+```
+
+A few notes on the pieces:
+
+- **Why the model is centered and scaled.** `getModelMatrix` recenters using
+  `mesh.center()` and scales by `1 / mesh.extent()` so that *any* model, regardless of
+  its original units or position, ends up roughly unit-sized and centered — so it's
+  always nicely framed when the program starts.
+- **The projection matrix** is built once with a 45° field of view, the window's aspect
+  ratio (800/600), and near/far clipping planes at 0.1 and 100. The clipping planes
+  define the range of distances that are actually drawn. Perspective is what makes
+  distant parts of the model look smaller — it's encoded in how this matrix sets up the
+  `w` component, which the GPU later divides by ("perspective divide").
+- **The view matrix** comes from the camera each frame, since the camera can move.
+
+### What the shaders do
+
+```glsl
+// mvp.vert.glsl — runs per vertex
+layout (location = 0) in vec3 aPos;   // matches glVertexAttribPointer(0, ...)
+uniform mat4 mvp;                      // set from C++ via shader.setMat4("mvp", ...)
+void main() {
+    gl_Position = mvp * vec4(aPos, 1.0);  // project this vertex onto the screen
+}
+```
+
+```glsl
+// basic.frag.glsl — runs per pixel
+out vec4 FragColor;
+void main() {
+    FragColor = vec4(1.0, 0.5, 0.2, 1.0);  // solid orange, RGBA in 0..1
+}
+```
+
+The fragment shader is currently trivial — every pixel of the model is the same orange.
+There's no lighting yet, so the model reads as a flat silhouette; shape only becomes
+obvious as you rotate it. (`basic.vert.glsl` is a leftover from an earlier stage that
+drew a vertex without any transform — it's not used by the final program, which uses
+`mvp.vert.glsl`.)
+
+---
+
+## 10. The render loop, line by line
+
+`main.cpp` is the conductor. After parsing and uploading the mesh and creating the
+shader, camera, and transform, it enters the loop that runs until you close the window:
+
+```cpp
+while (!renderer.shouldClose()) {
+    float currentFrame = glfwGetTime();
+    float deltaTime = currentFrame - lastFrame;   // seconds since last frame
+    lastFrame = currentFrame;
+
+    if (ESC pressed) close the window;
+
+    camera.processInput(window, deltaTime);        // move camera from WASD/QE
+    model.processInput(window, deltaTime);          // rotate model from arrows/Z/X
+
+    Mat4 mvp = projection * camera.getViewMatrix()
+                          * model.getModelMatrix(meshCenter, scaleFactor);
+
+    renderer.beginFrame();      // clear screen + depth
+    shader.use();               // activate the shader program
+    shader.setMat4("mvp", mvp); // send the combined transform to the GPU
+    renderer.draw();            // issue the draw call
+    renderer.endFrame();        // swap buffers + poll input
+}
+```
+
+**Why `deltaTime`?** Different computers run the loop at different speeds. If movement
+were a fixed amount per frame, the model would spin faster on a fast machine. By
+multiplying movement by `deltaTime` (the real seconds elapsed since the last frame),
+motion is measured in "units per second" and feels identical everywhere. This is called
+**frame-rate-independent movement**.
+
+---
+
+## 11. Controls
+
+| Key(s) | Action |
+|--------|--------|
+| **W / S** | Move camera forward / backward |
+| **A / D** | Move camera left / right (strafe) |
+| **Q / E** | Move camera up / down |
+| **← / →** | Rotate model (yaw, around vertical axis) |
+| **↑ / ↓** | Rotate model (pitch, around horizontal axis) |
+| **Z / X** | Roll model (around the front-facing axis) |
+| **Esc** | Quit |
+
+---
+
+## 12. Current limitations / what's not done yet
+
+Knowing what's *absent* is as instructive as knowing what's present:
+
+- **No colors, normals, or texture coordinates** are read from the `.obj` — only `v`
+  (positions) and `f` (faces). Each vertex is just a position; `vn` and `vt` lines are
+  ignored.
+- **No lighting.** The fragment shader outputs a constant orange, so the model has no
+  shading and looks flat until rotated.
+- **No per-face coloring** and **no textures** yet (these appear later in the
+  development plan).
+- **Fan triangulation assumes convex faces** — concave polygons would triangulate
+  incorrectly, though these are rare in practice.
+- The window size and projection aspect ratio are **hardcoded** to 800×600 and don't
+  update if the window is resized.
+
+---
+
+## 13. Glossary
+
+- **Vertex** — a single point in 3D space (`x, y, z`).
+- **Index / Element** — an integer referencing a vertex, used to build triangles without
+  duplicating vertex data.
+- **Mesh** — a model as vertices + indices.
+- **Shader** — a small GPU program (vertex shader = position, fragment shader = color).
+- **GLSL** — the C-like language shaders are written in.
+- **VAO / VBO / EBO** — GPU objects: VAO records *how* to read vertex data; VBO holds the
+  vertex floats; EBO holds the indices.
+- **Uniform** — a variable sent from CPU to a shader, constant for one draw call (e.g.
+  the MVP matrix).
+- **Attribute** — per-vertex input to the vertex shader (e.g. position at location 0).
+- **MVP** — Model × View × Projection, the combined transform from 3D model space to 2D
+  screen space.
+- **Model / World / View / Clip space** — successive coordinate systems a vertex passes
+  through.
+- **Homogeneous coordinates** — using a 4th component `w` so that a single 4×4 matrix can
+  represent translation as well as rotation/scaling.
+- **Projection** — the step that creates the perspective effect (distant = smaller).
+- **Rasterization** — converting a triangle into the pixels it covers.
+- **Depth test (Z-buffer)** — per-pixel distance tracking so nearer surfaces correctly
+  hide farther ones.
+- **Double buffering** — drawing to a hidden buffer and swapping it in, to avoid showing
+  half-drawn frames.
+- **Delta time** — real seconds elapsed since the previous frame, used to keep motion
+  speed consistent across machines.
+- **GLFW** — library for windowing and input.
+- **GLAD** — library that loads OpenGL function pointers at runtime.
+- **Wavefront OBJ** — a plain-text 3D model file format.
+- **Column-major** — the matrix storage order OpenGL expects.
