@@ -1,6 +1,7 @@
 #pragma once
 #include "Vec3.hpp"
 #include <vector>
+#include <limits>
 
 /// @brief Holds the GPU-ready data extracted from an .obj file.
 ///        vertices is a flat array of floats (x, y, z per vertex).
