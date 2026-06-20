@@ -145,8 +145,8 @@ operating-system specific. Two small libraries fill the gaps:
 .
 ├── Makefile                      # Build script (auto-detects macOS vs Linux)
 ├── shaders/
-│   ├── mvp.vert.glsl             # Real vertex shader (applies MVP, passes per-face color)
-│   └── basic.frag.glsl           # Fragment shader (paints each face its own grey)
+│   ├── mvp.vert.glsl             # Vertex shader (applies MVP, passes color + UV)
+│   └── basic.frag.glsl           # Fragment shader (blends per-face color with texture)
 ├── include/
 │   ├── glad/  KHR/                # Bundled GLAD + Khronos platform headers
 │   ├── math/
@@ -157,15 +157,18 @@ operating-system specific. Two small libraries fill the gaps:
 │   ├── graphics/
 │   │   ├── Renderer.hpp           # Window + OpenGL buffers + draw calls
 │   │   ├── Shader.hpp             # GLSL loading/compiling/linking
+│   │   ├── Texture.hpp            # BMP loading + GPU texture object
 │   │   ├── Camera.hpp             # Fly-camera (view matrix)
 │   │   └── ModelTransform.hpp     # Per-model rotation/scale/centering
 │   └── parser/
 │       ├── Mesh.hpp               # The CPU-side model data + bounding-box helpers
 │       └── ObjParser.hpp          # .obj file reader
+├── textures/
+│   └── default.bmp               # Fallback 24-bit BMP used when none is supplied
 └── src/
     ├── main.cpp                   # Entry point + render loop
     ├── glad/glad.c                # Bundled GLAD implementation
-    ├── graphics/                  # Renderer.cpp, Shader.cpp, Camera.cpp
+    ├── graphics/                  # Renderer.cpp, Shader.cpp, Camera.cpp, Texture.cpp
     └── parser/ObjParser.cpp       # Parser implementation
 ```
 
@@ -198,7 +201,7 @@ separately, then links them. Compiler flags are strict: `-Wall -Wextra -Werror`.
 
 ## 6. The big picture: the data flow
 
-Here is the entire journey of your model, from file to screen:
+Here is the entire journey of the model, from file to screen:
 
 ```
   model.obj  ──▶  ObjParser  ──▶  Mesh  ──▶  Renderer.uploadMesh()  ──▶  GPU memory
@@ -248,9 +251,10 @@ Helper methods:
 - `extent()` → returns half the longest side of that bounding box. Used to scale any
   model — big or small — down to roughly the same on-screen size.
 - `expandedColoredVertices()` → produces the GPU-ready array `uploadMesh` actually ships.
-  It **de-indexes** the mesh (writes a private copy of each triangle's three vertices) and
-  tags every triangle with a single grey, laid out as `x, y, z, r, g, b` per vertex. The
-  reasoning is in the per-face coloring discussion in §9.
+  It **de-indexes** the mesh (writes a private copy of each triangle's three vertices),
+  tags every triangle with a single grey, and attaches a generated texture coordinate,
+  laid out as `x, y, z, r, g, b, u, v` per vertex (eight floats). The greys are explained
+  in §9; the UVs are explained in §7.5.
 
 A **bounding box** is just `(minX, minY, minZ)` to `(maxX, maxY, maxZ)` computed by
 sweeping through every vertex. Both helpers do that sweep.
@@ -314,7 +318,7 @@ inside-out and scrambled.
 to get a **de-indexed**, per-face-colored float array (see §9), then creates two objects:
 
 - **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats,
-  now six per vertex: position `x, y, z` followed by color `r, g, b`.
+  now eight per vertex: position `x, y, z` followed by color `r, g, b`.
 - **VAO (Vertex Array Object)** — *not* data, but a small recording of "how to interpret
   the VBO." It remembers which buffer to read and the layout of the data. Once set up,
   you just bind the VAO before drawing and OpenGL recalls all those settings.
@@ -322,25 +326,27 @@ to get a **de-indexed**, per-face-colored float array (see §9), then creates tw
 Because the data is de-indexed, there's **no EBO** anymore — the vertices are already in
 draw order, so nothing needs to point into them.
 
-The layout now describes **two** attributes packed into each vertex:
+The layout now describes **three** attributes packed into each vertex:
 
 ```cpp
-// location 0: position — 3 floats, stride 6 floats, offset 0
-glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+const GLsizei stride = 8 * sizeof(float);
+
+// location 0: position — 3 floats, offset 0
+glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
 glEnableVertexAttribArray(0);
 
-// location 1: color — 3 floats, stride 6 floats, offset 3 floats in
-glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                      (void*)(3 * sizeof(float)));
+// location 1: color — 3 floats, offset 3 floats in
+glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
 glEnableVertexAttribArray(1);
+
+// location 2: texture coordinate — 2 floats, offset 6 floats in
+glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+glEnableVertexAttribArray(2);
 ```
 
-Read the first as: "attribute **location 0** is **3 floats**, the **stride** from one
-vertex to the next is **6 floats** (each vertex is now position + color), starting at
-**offset 0**." The second says color is at **location 1**, same stride, but starts **3
-floats in** — right after the position. Those `location` numbers are the same ones you'll
-see in the vertex shader's `layout (location = 0)` and `layout (location = 1)`. They must
-match.
+The **stride** is now eight floats — position, then color, then UV — and `_vertexCount`
+divides the float count by 8 instead of 6. The `location` numbers match the
+`layout (location = ...)` lines in the vertex shader; they must agree.
 
 `GL_STATIC_DRAW` is a hint telling the driver "this data won't change after upload," so
 it can optimize storage.
@@ -396,7 +402,40 @@ variable you send from C++ into a shader that stays constant for an entire draw 
 finds the variable's location by name with `glGetUniformLocation` and uploads the value
 with a `glUniform*` call. `setMat4` is the one this project actually uses every frame.
 
-### 7.5 `Camera` (`src/graphics/Camera.cpp`)
+### 7.5 `Texture` (`src/graphics/Texture.cpp`)
+
+Turns an image file on disk into a GPU **texture object**. Like `Shader` and `Renderer`,
+it owns a GPU handle, so it forbids copying and frees the handle in its destructor.
+
+The project pulls in no image library (the same self-reliance that drives the custom math
+library), so the loader decodes a **24-bit uncompressed BMP** by hand. Three properties of
+the BMP format shape the code:
+
+- **Little-endian header fields.** Multi-byte numbers are stored least-significant-byte
+  first. The loader reads them byte-by-byte rather than casting a struct, so it's correct
+  on any CPU.
+- **Bottom-up rows.** A BMP stores its last scanline first — which happens to match
+  OpenGL's convention that the first row of pixel data is the *bottom* of the texture, so
+  the image comes out upright with no flip. (Top-down BMPs, marked by a negative height,
+  are handled too.)
+- **`BGR` order and 4-byte row padding.** The loader swaps channels to `RGB` and repacks
+  rows tightly, then sets `glPixelStorei(GL_UNPACK_ALIGNMENT, 1)` so OpenGL doesn't assume
+  4-byte-aligned rows and read the image skewed.
+
+After decoding, it uploads with `glTexImage2D` and sets two behaviors: **wrapping**
+(`GL_REPEAT` — what to sample when a UV leaves `[0,1]`) and **filtering** (`GL_LINEAR` plus
+**mipmaps** via `glGenerateMipmap`, so distant surfaces don't shimmer). `bind(unit)` makes
+the texture active on a texture unit so the fragment shader's sampler can read it.
+
+**Where do the texture coordinates come from?** The `.obj` provides none (the parser drops
+`vt` lines), so they're *generated*, exactly as the per-face greys are. `Mesh` uses a
+**planar projection**: each vertex's X/Y position, normalized into `[0,1]` by the bounding
+box, becomes its `(u, v)`. This is a projection, not an unwrap, so faces that turn edge-on
+to the projection get stretched into streaks — an honest, expected artifact. A spherical
+mapping (longitude/latitude from the model center) would wrap fully and is the natural
+upgrade.
+
+### 7.6 `Camera` (`src/graphics/Camera.cpp`)
 
 A first-person "fly" camera. It stores a `_position` and two angles: **`_yaw`** (turning
 left/right) and **`_pitch`** (looking up/down). From those angles `getFront()` computes a
@@ -411,7 +450,7 @@ perpendicular to both). Movement is scaled by `deltaTime` so it's frame-rate ind
 **view matrix** — the transform that moves the whole world so the camera sits at the
 origin looking down −Z. (See the MVP section.)
 
-### 7.6 `ModelTransform` (`include/graphics/ModelTransform.hpp`)
+### 7.7 `ModelTransform` (`include/graphics/ModelTransform.hpp`)
 
 A header-only struct controlling the *model's* orientation, separate from the camera. It
 stores `yaw`, `pitch`, `roll` (rotations about the Y, X, and Z axes), driven by the arrow
@@ -531,28 +570,40 @@ A few notes on the pieces:
 
 ```glsl
 // mvp.vert.glsl — runs per vertex
-layout (location = 0) in vec3 aPos;    // matches glVertexAttribPointer(0, ...)
-layout (location = 1) in vec3 aColor;  // matches glVertexAttribPointer(1, ...)
-uniform mat4 mvp;                       // set from C++ via shader.setMat4("mvp", ...)
-out vec3 vColor;                        // handed down to the fragment shader
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aColor;
+layout (location = 2) in vec2 aUV;
+uniform mat4 mvp;
+out vec3 vColor;
+out vec2 vUV;
 void main() {
-    vColor = aColor;                      // pass the color straight through
-    gl_Position = mvp * vec4(aPos, 1.0);  // project this vertex onto the screen
+    vColor = aColor;
+    vUV = aUV;
+    gl_Position = mvp * vec4(aPos, 1.0);
 }
 ```
 
 ```glsl
 // basic.frag.glsl — runs per pixel
-in vec3 vColor;       // color coming from the vertex shader
+in vec3 vColor;
+in vec2 vUV;
+uniform sampler2D tex;     // texture, read from unit 0
+uniform float useTexture;  // 0.0 = grey, 1.0 = texture
 out vec4 FragColor;
 void main() {
-    FragColor = vec4(vColor, 1.0);  // paint the pixel that color, RGBA in 0..1
+    vec3 texColor = texture(tex, vUV).rgb;
+    FragColor = vec4(mix(vColor, texColor, useTexture), 1.0);
 }
 ```
 
 Each face of the model carries its own grey, so its surfaces read even before you rotate it. 
 (`basic.vert.glsl`is a leftover from an earlier stage that drew a vertex without any transform 
 — it's not used by the final program, which uses `mvp.vert.glsl`.)
+
+`mix(a, b, t)` returns `a` when `t = 0` and `b` when `t = 1`. With `useTexture` held at
+exactly `0.0` or `1.0`, this is a hard toggle between the per-face grey and the texture;
+writing it as a blend (rather than an `if`) is deliberate, because step 12 will animate
+`useTexture` between the two for a smooth fade.
 
 ### Per-face coloring
 
@@ -599,6 +650,8 @@ same `f` line — a small, additive change on top of what's here.
 shader, camera, and transform, it enters the loop that runs until you close the window:
 
 ```cpp
+shader.use();
+shader.setInt("tex", 0);   // sampler reads from texture unit 0 (set once)
 while (!renderer.shouldClose()) {
     float currentFrame = glfwGetTime();
     float deltaTime = currentFrame - lastFrame;   // seconds since last frame
@@ -613,8 +666,10 @@ while (!renderer.shouldClose()) {
                           * model.getModelMatrix(meshCenter, scaleFactor);
 
     renderer.beginFrame();      // clear screen + depth
-    shader.use();               // activate the shader program
-    shader.setMat4("mvp", mvp); // send the combined transform to the GPU
+    shader.use();
+    shader.setMat4("mvp", mvp);
+    shader.setFloat("useTexture", showTexture ? 1.0f : 0.0f);
+    texture.bind(0);
     renderer.draw();            // issue the draw call
     renderer.endFrame();        // swap buffers + poll input
 }
@@ -625,6 +680,11 @@ were a fixed amount per frame, the model would spin faster on a fast machine. By
 multiplying movement by `deltaTime` (the real seconds elapsed since the last frame),
 motion is measured in "units per second" and feels identical everywhere. This is called
 **frame-rate-independent movement**.
+
+**Why edge-detect the T key?** `glfwGetKey` reports whether a key is *currently* down, and
+the loop runs ~60 times a second, so one human press spans many frames. The toggle
+compares the key's current state to its state last frame and flips only on the
+up-to-down *transition* — otherwise the texture would strobe on and off while T is held.
 
 ---
 
@@ -638,6 +698,7 @@ motion is measured in "units per second" and feels identical everywhere. This is
 | **← / →** | Rotate model (yaw, around vertical axis) |
 | **↑ / ↓** | Rotate model (pitch, around horizontal axis) |
 | **Z / X** | Roll model (around the front-facing axis) |
+| **T** | Toggle texture on / off (per-face color ↔ texture) |
 | **Esc** | Quit |
 
 ---
@@ -648,11 +709,15 @@ Knowing what's *absent* is as instructive as knowing what's present:
 
 - **No normals or texture coordinates** are read from the `.obj` — only `v` (positions)
   and `f` (faces). Vertex colors are *generated* (per-face greys), not read from the file;
-  `vn` and `vt` lines are ignored.
+  `vn` lines are ignored, and `vt` lines are parsed past but not used (texture coordinates 
+  are generated instead — see §7.5).
 - **No lighting.** Faces are shaded with arbitrary per-face greys, not by any light
   source, so there are no real highlights or shadows — the greys just make adjacent
   surfaces distinguishable.
-- **No textures** yet (texture loading is the next step in the development plan).
+- **Textures use generated UVs, not file UVs.** A 24-bit BMP can be loaded and toggled
+  with **T**, but because `.obj` texture coordinates are ignored, UVs are produced by a
+  planar projection of position. Surfaces facing away from the projection axis are
+  therefore stretched. Only 24-bit uncompressed BMPs are supported.
 - **Fan triangulation assumes convex faces** — concave polygons would triangulate
   incorrectly, though these are rare in practice.
 - The window size and projection aspect ratio are **hardcoded** to 800×600 and don't
@@ -698,3 +763,17 @@ Knowing what's *absent* is as instructive as knowing what's present:
 - **GLAD** — library that loads OpenGL function pointers at runtime.
 - **Wavefront OBJ** — a plain-text 3D model file format.
 - **Column-major** — the matrix storage order OpenGL expects.
+- **Texture** — a 2D image stored in GPU memory and sampled onto a surface.
+- **Texel** — a single cell of a texture image (the texture analogue of a pixel).
+- **Texture coordinate (UV)** — a 2D coordinate in `[0, 1]` naming a point in the texture
+  image; `(0,0)` and `(1,1)` are opposite corners. Attached per vertex, interpolated across
+  each triangle.
+- **Sampler** — the fragment-shader object (`sampler2D`) that reads a texture at a given UV.
+- **Wrapping** — how UVs outside `[0, 1]` are handled (e.g. `GL_REPEAT` tiles the image).
+- **Filtering** — how texels are blended when the texture is scaled on screen
+  (`GL_NEAREST` = blocky, `GL_LINEAR` = smooth).
+- **Mipmap** — a chain of pre-shrunk copies of a texture, sampled when a surface is small
+  on screen to avoid aliasing.
+- **Planar projection** — generating UVs by projecting vertex positions onto a plane;
+  simple but stretches surfaces that face away from the projection axis.
+- **BMP** — a simple, uncompressed raster image format; the one this viewer can load.

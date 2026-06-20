@@ -2,3 +2,5 @@
 !.gitignore
 *.md
 !README.md
+42.obj
+teapot.obj

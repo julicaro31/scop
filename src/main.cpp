@@ -5,12 +5,13 @@
 #include "ObjParser.hpp"
 #include "Math.hpp"
 #include "ModelTransform.hpp"
+#include "Texture.hpp"
 
 int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        std::cerr << "Usage: ./scop <model.obj>\n";
+        std::cerr << "Usage: ./scop <model.obj> [texture.bmp]\n";
         return 1;
     }
 
@@ -29,6 +30,13 @@ int main(int argc, char **argv)
     renderer.uploadMesh(mesh);
 
     Shader shader("shaders/mvp.vert.glsl", "shaders/basic.frag.glsl");
+
+    const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
+    Texture texture(texturePath);
+
+    shader.use();
+    shader.setInt("tex", 0);
+
     Camera camera(Vec3(0.0f, 0.0f, 7.0f));
     ModelTransform model;
 
@@ -37,6 +45,9 @@ int main(int argc, char **argv)
     float scaleFactor = (meshExtent > 0.0f) ? 1.0f / meshExtent : 1.0f;
 
     Mat4 projection = Math::perspective(toRadians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+
+    bool showTexture = false; // current mode
+    int tPrev = GLFW_RELEASE; // previous physical state of the T key
 
     float lastFrame = 0.0f;
     while (!renderer.shouldClose())
@@ -50,6 +61,11 @@ int main(int argc, char **argv)
             glfwSetWindowShouldClose(renderer.getWindow(), true);
         }
 
+        int tNow = glfwGetKey(renderer.getWindow(), GLFW_KEY_T);
+        if (tNow == GLFW_PRESS && tPrev == GLFW_RELEASE)
+            showTexture = !showTexture;
+        tPrev = tNow;
+
         camera.processInput(renderer.getWindow(), deltaTime);
         model.processInput(renderer.getWindow(), deltaTime);
 
@@ -58,6 +74,8 @@ int main(int argc, char **argv)
         renderer.beginFrame();
         shader.use();
         shader.setMat4("mvp", mvp);
+        shader.setFloat("useTexture", showTexture ? 1.0f : 0.0f);
+        texture.bind(0);
         renderer.draw();
         renderer.endFrame();
     }

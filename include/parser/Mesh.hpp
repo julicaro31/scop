@@ -98,12 +98,42 @@ struct Mesh
         return maxDim * 0.5f;
     }
 
-    /// @brief Produces a de-indexed, per-triangle-colored vertex array.
-    ///        Layout per vertex: x, y, z, r, g, b (6 floats). No index array needed.
+    /// @brief Produces a de-indexed vertex array carrying position, a per-face
+    ///        grey, and a generated texture coordinate (UV).
+    ///        Layout per vertex: x, y, z, r, g, b, u, v (8 floats).
+    ///
+    ///        The .obj has no usable texture coordinates, so we *generate* them
+    ///        by a planar projection: each vertex's X/Y position, normalized into
+    ///        [0, 1] using the model's bounding box, becomes its (u, v). This is a
+    ///        projection, not a true unwrap, so faces that face sideways get
+    ///        stretched — the same honest trade-off as the generated greys.
     std::vector<float> expandedColoredVertices() const
     {
         std::vector<float> out;
-        out.reserve(indices.size() * 6);
+        out.reserve(indices.size() * 8);
+
+        // Bounding box in X and Y, used to normalize positions into UV space.
+        float minX = std::numeric_limits<float>::max();
+        float minY = std::numeric_limits<float>::max();
+        float maxX = std::numeric_limits<float>::lowest();
+        float maxY = std::numeric_limits<float>::lowest();
+        for (size_t i = 0; i < vertices.size(); i += 3)
+        {
+            if (vertices[i] < minX)
+                minX = vertices[i];
+            if (vertices[i] > maxX)
+                maxX = vertices[i];
+            if (vertices[i + 1] < minY)
+                minY = vertices[i + 1];
+            if (vertices[i + 1] > maxY)
+                maxY = vertices[i + 1];
+        }
+        float spanX = (maxX - minX);
+        float spanY = (maxY - minY);
+        if (spanX <= 0.0f)
+            spanX = 1.0f; // guard against a flat model
+        if (spanY <= 0.0f)
+            spanY = 1.0f;
 
         for (size_t i = 0; i + 2 < indices.size(); i += 3)
         {
@@ -116,12 +146,18 @@ struct Mesh
             for (int j = 0; j < 3; ++j)
             {
                 unsigned int v = indices[i + j];
-                out.push_back(vertices[v * 3 + 0]);
-                out.push_back(vertices[v * 3 + 1]);
-                out.push_back(vertices[v * 3 + 2]);
+                float x = vertices[v * 3 + 0];
+                float y = vertices[v * 3 + 1];
+                float z = vertices[v * 3 + 2];
+
+                out.push_back(x);
+                out.push_back(y);
+                out.push_back(z);
                 out.push_back(grey);
                 out.push_back(grey);
                 out.push_back(grey);
+                out.push_back((x - minX) / spanX); // u
+                out.push_back((y - minY) / spanY); // v
             }
         }
 

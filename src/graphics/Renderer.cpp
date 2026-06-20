@@ -38,7 +38,7 @@ Renderer::~Renderer()
 void Renderer::uploadMesh(const Mesh &mesh)
 {
     std::vector<float> data = mesh.expandedColoredVertices();
-    _vertexCount = static_cast<GLsizei>(data.size() / 6); // 6 floats per vertex
+    _vertexCount = static_cast<GLsizei>(data.size() / 8); // 8 floats per vertex
 
     glGenVertexArrays(1, &_VAO);
     glGenBuffers(1, &_VBO);
@@ -51,14 +51,21 @@ void Renderer::uploadMesh(const Mesh &mesh)
                  data.data(),
                  GL_STATIC_DRAW);
 
+    const GLsizei stride = 8 * sizeof(float);
+
     // location 0: position (3 floats) at offset 0
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void *)0);
     glEnableVertexAttribArray(0);
 
-    // location 1: color (3 floats) at offset 3 floats into each vertex
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+    // location 1: color (3 floats) at offset 3 floats
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride,
                           (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    // location 2: texture coordinate (2 floats) at offset 6 floats
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride,
+                          (void *)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 }
 
 void Renderer::beginFrame()
