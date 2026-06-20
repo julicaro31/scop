@@ -31,9 +31,11 @@ int main(int argc, char **argv)
 
     Shader shader("shaders/mvp.vert.glsl", "shaders/basic.frag.glsl");
 
+    // Load the texture (a 24-bit BMP). Use argv[2] if given, else the default.
     const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
     Texture texture(texturePath);
 
+    // Tell the sampler "tex" to read from texture unit 0 (constant for the run).
     shader.use();
     shader.setInt("tex", 0);
 
@@ -46,8 +48,10 @@ int main(int argc, char **argv)
 
     Mat4 projection = Math::perspective(toRadians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
 
-    bool showTexture = false; // current mode
-    int tPrev = GLFW_RELEASE; // previous physical state of the T key
+    bool showTexture = false;
+    float texMix = 0.0f;
+    int tPrev = GLFW_RELEASE;
+    const float fadeDuration = 0.3f;
 
     float lastFrame = 0.0f;
     while (!renderer.shouldClose())
@@ -66,6 +70,13 @@ int main(int argc, char **argv)
             showTexture = !showTexture;
         tPrev = tNow;
 
+        float target = showTexture ? 1.0f : 0.0f;
+        float step = deltaTime / fadeDuration;
+        if (texMix < target)
+            texMix = (texMix + step < target) ? texMix + step : target;
+        else if (texMix > target)
+            texMix = (texMix - step > target) ? texMix - step : target;
+
         camera.processInput(renderer.getWindow(), deltaTime);
         model.processInput(renderer.getWindow(), deltaTime);
 
@@ -74,7 +85,7 @@ int main(int argc, char **argv)
         renderer.beginFrame();
         shader.use();
         shader.setMat4("mvp", mvp);
-        shader.setFloat("useTexture", showTexture ? 1.0f : 0.0f);
+        shader.setFloat("useTexture", texMix);
         texture.bind(0);
         renderer.draw();
         renderer.endFrame();

@@ -600,10 +600,13 @@ Each face of the model carries its own grey, so its surfaces read even before yo
 (`basic.vert.glsl`is a leftover from an earlier stage that drew a vertex without any transform 
 — it's not used by the final program, which uses `mvp.vert.glsl`.)
 
-`mix(a, b, t)` returns `a` when `t = 0` and `b` when `t = 1`. With `useTexture` held at
-exactly `0.0` or `1.0`, this is a hard toggle between the per-face grey and the texture;
-writing it as a blend (rather than an `if`) is deliberate, because step 12 will animate
-`useTexture` between the two for a smooth fade.
+`mix(a, b, t)` returns `a` when `t = 0`, `b` when `t = 1`, and a linear blend in between.
+`useTexture` is driven from C++ by `texMix`, a value that eases smoothly through the whole
+`[0, 1]` range when you press T (see §10) — so this one line gives both the per-face grey,
+the full texture, and every fade between them. (Holding `useTexture` at exactly `0` or `1`
+would make it a hard switch; animating it is what makes the toggle smooth.) Writing the
+blend as `mix` rather than an `if` is what made that upgrade a main-loop change with no
+shader edit at all.
 
 ### Per-face coloring
 
@@ -652,12 +655,24 @@ shader, camera, and transform, it enters the loop that runs until you close the 
 ```cpp
 shader.use();
 shader.setInt("tex", 0);   // sampler reads from texture unit 0 (set once)
+
+bool  showTexture = false; // TARGET mode, flipped by T
+float texMix = 0.0f;       // ANIMATED value actually sent to the shader
+
 while (!renderer.shouldClose()) {
     float currentFrame = glfwGetTime();
     float deltaTime = currentFrame - lastFrame;   // seconds since last frame
     lastFrame = currentFrame;
 
     if (ESC pressed) close the window;
+
+    if (T just pressed) showTexture = !showTexture;   // flip the TARGET
+
+    // Ease the displayed value toward the target at a constant rate, so a full
+    // fade takes a fixed time (~0.3s) on any machine; clamp so it never overshoots.
+    float target = showTexture ? 1.0f : 0.0f;
+    float step = deltaTime / fadeDuration;
+    texMix = move texMix toward target by step;
 
     camera.processInput(window, deltaTime);        // move camera from WASD/QE
     model.processInput(window, deltaTime);          // rotate model from arrows/Z/X
@@ -666,9 +681,8 @@ while (!renderer.shouldClose()) {
                           * model.getModelMatrix(meshCenter, scaleFactor);
 
     renderer.beginFrame();      // clear screen + depth
-    shader.use();
     shader.setMat4("mvp", mvp);
-    shader.setFloat("useTexture", showTexture ? 1.0f : 0.0f);
+    shader.setFloat("useTexture", texMix);   // a value in [0,1], not just 0 or 1
     texture.bind(0);
     renderer.draw();            // issue the draw call
     renderer.endFrame();        // swap buffers + poll input
@@ -686,6 +700,18 @@ the loop runs ~60 times a second, so one human press spans many frames. The togg
 compares the key's current state to its state last frame and flips only on the
 up-to-down *transition* — otherwise the texture would strobe on and off while T is held.
 
+**Why two variables for one toggle?** A `bool` has no in-between, so it can only *snap*.
+The fade therefore splits the state in two: `showTexture` is the **target** (where we want
+to be, flipped by T), and `texMix` is the **animated current value** in `[0, 1]` that is
+actually sent to the shader. Each frame `texMix` takes one small step *toward* the target
+rather than jumping to it, and the fragment shader's `mix(vColor, texColor, texMix)` turns
+that number into a blend. The step is `deltaTime / fadeDuration`, so — exactly like camera
+movement — the fade lasts the same wall-clock time (~0.3 s) regardless of frame rate, and
+the value is clamped so the last partial step lands exactly on `0` or `1` instead of
+overshooting. A nice side effect: because `texMix` always chases whatever the target
+currently is, pressing T mid-fade simply reverses the motion smoothly, with no
+"animation in progress" state to track.
+
 ---
 
 ## 11. Controls
@@ -698,7 +724,7 @@ up-to-down *transition* — otherwise the texture would strobe on and off while 
 | **← / →** | Rotate model (yaw, around vertical axis) |
 | **↑ / ↓** | Rotate model (pitch, around horizontal axis) |
 | **Z / X** | Roll model (around the front-facing axis) |
-| **T** | Toggle texture on / off (per-face color ↔ texture) |
+| **T** | Smoothly fade texture on / off (per-face color ↔ texture) |
 | **Esc** | Quit |
 
 ---
@@ -777,3 +803,7 @@ Knowing what's *absent* is as instructive as knowing what's present:
 - **Planar projection** — generating UVs by projecting vertex positions onto a plane;
   simple but stretches surfaces that face away from the projection axis.
 - **BMP** — a simple, uncompressed raster image format; the one this viewer can load.
+- **Easing toward a target** — animating a value by moving it a fraction of the remaining
+  distance toward a goal each frame (scaled by delta time), rather than snapping. Used for
+  the smooth texture fade: the target is a boolean mode, the eased value is the `[0, 1]`
+  blend factor sent to the shader.
