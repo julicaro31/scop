@@ -318,15 +318,12 @@ inside-out and scrambled.
 to get a **de-indexed**, per-face-colored float array (see §9), then creates two objects:
 
 - **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats,
-  now eight per vertex: position `x, y, z` followed by color `r, g, b`.
+  now eight per vertex: position `x, y, z` followed by color `r, g, b` and texture `u, v`.
 - **VAO (Vertex Array Object)** — *not* data, but a small recording of "how to interpret
   the VBO." It remembers which buffer to read and the layout of the data. Once set up,
   you just bind the VAO before drawing and OpenGL recalls all those settings.
 
-Because the data is de-indexed, there's **no EBO** anymore — the vertices are already in
-draw order, so nothing needs to point into them.
-
-The layout now describes **three** attributes packed into each vertex:
+The layout describes **three** attributes packed into each vertex:
 
 ```cpp
 const GLsizei stride = 8 * sizeof(float);
@@ -344,9 +341,8 @@ glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float
 glEnableVertexAttribArray(2);
 ```
 
-The **stride** is now eight floats — position, then color, then UV — and `_vertexCount`
-divides the float count by 8 instead of 6. The `location` numbers match the
-`layout (location = ...)` lines in the vertex shader; they must agree.
+The **stride** is eight floats: position, then color, then UV.
+The `location` numbers match the `layout (location = ...)` lines in the vertex shader; they must agree.
 
 `GL_STATIC_DRAW` is a hint telling the driver "this data won't change after upload," so
 it can optimize storage.

@@ -38,7 +38,7 @@ Renderer::~Renderer()
 void Renderer::uploadMesh(const Mesh &mesh)
 {
     std::vector<float> data = mesh.expandedColoredVertices();
-    _vertexCount = static_cast<GLsizei>(data.size() / 8); // 8 floats per vertex
+    _vertexCount = static_cast<GLsizei>(data.size() / 8);
 
     glGenVertexArrays(1, &_VAO);
     glGenBuffers(1, &_VBO);

@@ -31,7 +31,6 @@ int main(int argc, char **argv)
 
     Shader shader("shaders/mvp.vert.glsl", "shaders/basic.frag.glsl");
 
-    // Load the texture (a 24-bit BMP). Use argv[2] if given, else the default.
     const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
     Texture texture(texturePath);
 
