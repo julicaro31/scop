@@ -105,8 +105,7 @@ struct Mesh
     ///        The .obj has no usable texture coordinates, so we *generate* them
     ///        by a planar projection: each vertex's X/Y position, normalized into
     ///        [0, 1] using the model's bounding box, becomes its (u, v). This is a
-    ///        projection, not a true unwrap, so faces that face sideways get
-    ///        stretched — the same honest trade-off as the generated greys.
+    ///        projection, not a true unwrap, so faces that face sideways get stretched.
     std::vector<float> expandedColoredVertices() const
     {
         std::vector<float> out;
@@ -131,7 +130,7 @@ struct Mesh
         float spanX = (maxX - minX);
         float spanY = (maxY - minY);
         if (spanX <= 0.0f)
-            spanX = 1.0f; // guard against a flat model
+            spanX = 1.0f;
         if (spanY <= 0.0f)
             spanY = 1.0f;
 

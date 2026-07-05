@@ -3,6 +3,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <cstdint>
+#include <iostream>
 
 // ----------------------------------------------------------------------------
 // Little-endian readers.
@@ -12,8 +13,7 @@
 // ----------------------------------------------------------------------------
 static uint32_t le32(const unsigned char *p)
 {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 static int32_t le32s(const unsigned char *p)
@@ -26,16 +26,15 @@ static uint16_t le16(const unsigned char *p)
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-std::vector<unsigned char>
-Texture::loadBMP(const std::string &path, int &outWidth, int &outHeight)
+std::vector<unsigned char> Texture::loadBMP(const std::string &path, int &outWidth, int &outHeight)
 {
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
+    {
         throw std::runtime_error("Could not open texture: " + path);
+    }
 
-    std::vector<unsigned char> raw(
-        (std::istreambuf_iterator<char>(file)),
-        std::istreambuf_iterator<char>());
+    std::vector<unsigned char> raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     // 14-byte file header + 40-byte info header = 54 bytes minimum.
     if (raw.size() < 54)
@@ -110,8 +109,6 @@ Texture::Texture(const std::string &path) : _id(0)
                  width, height, 0,
                  GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
 
-    // Mipmaps: pre-shrunk copies used when the model is far away, which removes
-    // the sparkly aliasing you get sampling a big texture into few pixels.
     glGenerateMipmap(GL_TEXTURE_2D);
 }
 

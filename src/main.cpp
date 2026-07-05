@@ -34,7 +34,6 @@ int main(int argc, char **argv)
     const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
     Texture texture(texturePath);
 
-    // Tell the sampler "tex" to read from texture unit 0 (constant for the run).
     shader.use();
     shader.setInt("tex", 0);
 

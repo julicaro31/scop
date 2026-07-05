@@ -8,7 +8,7 @@
 class Texture
 {
 public:
-    explicit Texture(const std::string &path);
+    Texture(const std::string &path);
     ~Texture();
 
     Texture(const Texture &) = delete;
@@ -19,8 +19,7 @@ public:
 private:
     GLuint _id;
 
-    static std::vector<unsigned char>
-    loadBMP(const std::string &path, int &outWidth, int &outHeight);
+    static std::vector<unsigned char> loadBMP(const std::string &path, int &outWidth, int &outHeight);
 };
 
 #endif
