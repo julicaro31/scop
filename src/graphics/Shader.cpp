@@ -142,7 +142,7 @@ void Shader::checkLinkErrors(GLuint program) const
 
     glGetProgramiv(program, GL_LINK_STATUS, &success);
 
-    if (success)
+    if (!success)
     {
         glGetProgramInfoLog(program, 1024, NULL, infoLog);
         std::cerr << "SHADER LINK ERROR:\n"
