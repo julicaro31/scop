@@ -103,7 +103,15 @@ GLuint Shader::linkProgram(GLuint vertexShader, GLuint fragmentShader) const
 
     glLinkProgram(program);
 
-    checkLinkErrors(program);
+    try
+    {
+        checkLinkErrors(program);
+    }
+    catch (...)
+    {
+        glDeleteProgram(program);
+        throw;
+    }
 
     return program;
 }
@@ -141,7 +149,6 @@ void Shader::checkLinkErrors(GLuint program) const
                   << infoLog
                   << "\n---------------------------------------------------"
                   << std::endl;
-        glDeleteProgram(program);
         throw std::runtime_error("Shader program linking failed");
     }
 }
