@@ -6,6 +6,7 @@
 #include "Math.hpp"
 #include "ModelTransform.hpp"
 #include "Texture.hpp"
+#include <filesystem>
 
 int main(int argc, char **argv)
 {
@@ -19,12 +20,17 @@ int main(int argc, char **argv)
     {
         Mesh mesh = ObjParser::parse(argv[1]);
 
+        const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
+        if (!std::filesystem::is_regular_file(texturePath))
+        {
+            throw std::runtime_error("Could not open texture: " + std::string(texturePath));
+        }
+
         Renderer renderer(800, 600, "Scop");
         renderer.uploadMesh(mesh);
 
         Shader shader("shaders/mvp.vert.glsl", "shaders/basic.frag.glsl");
 
-        const char *texturePath = (argc >= 3) ? argv[2] : "textures/default.bmp";
         Texture texture(texturePath);
 
         shader.use();

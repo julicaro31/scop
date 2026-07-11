@@ -1,6 +1,4 @@
 #include "Renderer.hpp"
-#include <iostream>
-#include <stdexcept>
 
 Renderer::Renderer(int width, int height, const char *title)
     : _window(nullptr), _VAO(0), _VBO(0), _vertexCount(0)
@@ -20,6 +18,7 @@ Renderer::Renderer(int width, int height, const char *title)
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
+        glfwTerminate();
         throw std::runtime_error("Failed to initialize GLAD");
     }
 

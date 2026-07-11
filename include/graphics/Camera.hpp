@@ -2,6 +2,8 @@
 #define CAMERA_HPP
 
 #include "Math.hpp"
+#include <GLFW/glfw3.h>
+#include <cmath>
 
 struct GLFWwindow;
 

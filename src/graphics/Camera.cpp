@@ -1,6 +1,4 @@
 #include "Camera.hpp"
-#include <GLFW/glfw3.h>
-#include <cmath>
 
 Camera::Camera(const Vec3 &position, float yaw, float pitch)
     : _position(position), _yaw(yaw), _pitch(pitch)

@@ -1,10 +1,5 @@
 #include "Texture.hpp"
 
-#include <fstream>
-#include <stdexcept>
-#include <cstdint>
-#include <iostream>
-
 // ----------------------------------------------------------------------------
 // Little-endian readers.
 // BMP stores all multi-byte numbers least-significant-byte first, regardless of

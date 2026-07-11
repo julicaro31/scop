@@ -1,9 +1,14 @@
 #ifndef SHADER_HPP
 #define SHADER_HPP
 
+#include "Mat4.hpp"
+#include "ShaderObject.hpp"
 #include <glad/glad.h>
 #include <string>
-#include "Mat4.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <stdexcept>
 
 class Shader
 {
@@ -25,7 +30,7 @@ public:
 private:
     std::string readFile(const std::string &path) const;
 
-    GLuint compileShader(GLenum type, const std::string &source) const;
+    GLuint compileShader(GLuint shader, const std::string &source, std::string typeName) const;
 
     GLuint linkProgram(GLuint vertexShader, GLuint fragmentShader) const;
 

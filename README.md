@@ -157,6 +157,7 @@ operating-system specific. Two small libraries fill the gaps:
 │   ├── graphics/
 │   │   ├── Renderer.hpp           # Window + OpenGL buffers + draw calls
 │   │   ├── Shader.hpp             # GLSL loading/compiling/linking
+|   |   ├── ShaderObject.hpp       # Creates shader
 │   │   ├── Texture.hpp            # BMP loading + GPU texture object
 │   │   ├── Camera.hpp             # Fly-camera (view matrix)
 │   │   └── ModelTransform.hpp     # Per-model rotation/scale/centering

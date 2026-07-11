@@ -4,6 +4,10 @@
 #include <glad/glad.h>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <stdexcept>
+#include <cstdint>
+#include <iostream>
 
 class Texture
 {

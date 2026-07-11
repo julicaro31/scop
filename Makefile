@@ -3,7 +3,7 @@ CC  = cc
 
 UNAME_S := $(shell uname -s)
 
-CXXFLAGS = -Wall -Wextra -Werror -Iinclude -Iinclude/math -Iinclude/graphics -Iinclude/parser
+CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -Iinclude -Iinclude/math -Iinclude/graphics -Iinclude/parser
 CFLAGS   = -Wall -Wextra -Werror -Iinclude
 
 ifeq ($(UNAME_S),Darwin)

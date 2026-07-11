@@ -1,27 +1,18 @@
 #include "Shader.hpp"
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <stdexcept>
 
 // Constructor: reads, compiles, and links shaders from file paths
 Shader::Shader(const std::string &vertexPath, const std::string &fragmentPath)
 {
-    std::string vertexSource = readFile(vertexPath);
-    std::string fragmentSource = readFile(fragmentPath);
-
     // OpenGL needs us to compile shaders at runtime (not at build time like C++).
     // This is because different GPUs have different instruction sets, so the GPU driver compiles GLSL into GPU-specific machine code.
-    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    ShaderObject vertexShader(GL_VERTEX_SHADER);
+    compileShader(vertexShader.get(), readFile(vertexPath), "VERTEX");
 
-    // A "shader program" combines vertex + fragment shaders into one pipeline.
-    // The GPU runs the vertex shader for each vertex, then the fragment shader for each pixel (fragment) that gets rasterized.
-    programID = linkProgram(vertexShader, fragmentShader);
+    ShaderObject fragmentShader(GL_FRAGMENT_SHADER);
+    compileShader(fragmentShader.get(), readFile(fragmentPath), "FRAGMENT");
 
     // After linking, the compiled shaders are baked into the program. We don't need the individual shader objects anymore.
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
+    programID = linkProgram(vertexShader.get(), fragmentShader.get());
 }
 
 Shader::~Shader()
@@ -91,19 +82,13 @@ std::string Shader::readFile(const std::string &path) const
     return stream.str();
 }
 
-// - Creates an empty shader object on the GPU.
-// - type is GL_VERTEX_SHADER or GL_FRAGMENT_SHADER.
-// - Returns an ID (like a handle) to refer to this shader.
-GLuint Shader::compileShader(GLenum type, const std::string &source) const
+GLuint Shader::compileShader(GLuint shader, const std::string &source, std::string typeName) const
 {
-    GLuint shader = glCreateShader(type);
-
     const char *sourceCStr = source.c_str();
     glShaderSource(shader, 1, &sourceCStr, NULL);
 
     glCompileShader(shader);
 
-    std::string typeName = (type == GL_VERTEX_SHADER) ? "VERTEX" : "FRAGMENT";
     checkCompileErrors(shader, typeName);
 
     return shader;
@@ -149,13 +134,14 @@ void Shader::checkLinkErrors(GLuint program) const
 
     glGetProgramiv(program, GL_LINK_STATUS, &success);
 
-    if (!success)
+    if (success)
     {
         glGetProgramInfoLog(program, 1024, NULL, infoLog);
         std::cerr << "SHADER LINK ERROR:\n"
                   << infoLog
                   << "\n---------------------------------------------------"
                   << std::endl;
+        glDeleteProgram(program);
         throw std::runtime_error("Shader program linking failed");
     }
 }

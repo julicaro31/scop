@@ -3,6 +3,8 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <iostream>
+#include <stdexcept>
 #include "Mesh.hpp"
 
 class Renderer
