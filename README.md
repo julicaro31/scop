@@ -1,8 +1,8 @@
-# scop — A 3D OBJ Model Viewer
+# scop: A 3D OBJ Model Viewer
 
 `scop` is a small 3D engine written from scratch in C++ that loads a Wavefront `.obj`
 file (a common 3D model format) and displays it in a window where you can rotate it
-and fly a camera around it, with each face shaded its own tone so the geometry reads
+and move it around different directions, with each face shaded its own tone so the geometry reads
 clearly. It uses **OpenGL 3.3** to talk to the graphics card, and
 deliberately reimplements its own math library instead of depending on an external one.
 
@@ -38,7 +38,7 @@ to connect them into triangles. A screen, on the other hand, is a flat grid of p
 The job of this program is the bridge between those two: take a 3D model (the `.obj`
 file), figure out where each of its points lands on the 2D screen given a virtual
 camera, and color in the pixels. Doing that 60 times per second, while letting the user
-spin the model and move the camera, is what "real-time 3D rendering" means.
+spin the model and move it, is what "real-time 3D rendering" means.
 
 ---
 
@@ -50,8 +50,7 @@ else in the codebase is an implementation detail of these concepts.
 ### The GPU is a separate computer
 
 Your **CPU** runs your C++ code. The **GPU** (graphics card) is a separate processor
-optimized for doing the *same simple math on thousands of data points in parallel* —
-exactly what rendering needs. The two have separate memory.
+optimized for doing the *same simple math on thousands of data points in parallel*, exactly what rendering needs. The two have separate memory.
 
 A huge part of graphics programming is just **shipping data from CPU memory to GPU
 memory** and then telling the GPU "now draw with it." You don't draw pixels one at a
@@ -59,7 +58,7 @@ time yourself; you hand the GPU a description and it does the drawing.
 
 ### Everything is triangles
 
-Any 3D shape — a sphere, a teapot, a dragon — is approximated as a mesh of flat
+Any 3D shape (a sphere, a teapot, a dragon) is approximated as a mesh of flat
 **triangles**. Triangles are used because they're always flat and always convex, which
 makes the math simple and fast. A model is therefore just:
 
@@ -78,21 +77,21 @@ drawing**, and it's why this project has both a `vertices` array and an `indices
 
 There's a tradeoff hiding here, though. Sharing vertices saves memory, but it means a
 corner vertex belongs to *several* triangles at once. That's fine for position, but it
-becomes a problem the moment you want to give each face its own color — a shared vertex
+becomes a problem the moment you want to give each face its own color; a shared vertex
 has only one slot and can't hold two different colors. The fix, used for per-face coloring
 (see §9), is to *undo* the sharing, called **de-indexing**.
 
 ### The rendering pipeline and shaders
 
 When you tell the GPU to draw, your data flows through a fixed sequence of stages called
-the **rendering pipeline**. Two of those stages are programmable — you write tiny
+the **rendering pipeline**. Two of those stages are programmable; you write tiny
 programs for them called **shaders**, in a C-like language called **GLSL**:
 
-1. **Vertex shader** — runs *once per vertex*. Its job is to decide where that vertex
+1. **Vertex shader**: runs *once per vertex*. Its job is to decide where that vertex
    ends up on screen. This is where the 3D-to-2D projection math happens.
-2. **Rasterizer** (not programmable) — takes the three projected corners of a triangle
+2. **Rasterizer** (not programmable): takes the three projected corners of a triangle
    and figures out which pixels fall inside it.
-3. **Fragment shader** — runs *once per pixel* covered by a triangle. Its job is to
+3. **Fragment shader**: runs *once per pixel* covered by a triangle. Its job is to
    decide the **color** of that pixel.
 
 So: vertex shader = *position*, fragment shader = *color*. You'll see exactly these two
@@ -118,19 +117,19 @@ glDrawElements(...);        // draws using whatever VAO is currently bound
 ```
 
 There's no `VAO.draw()`. The bound state is global and hidden. Keep this in mind whenever
-the code calls a `glBind*` function — it's setting up context for the calls that follow.
+the code calls a `glBind*` function, it's setting up context for the calls that follow.
 
 ---
 
 ## 3. The libraries: GLFW and GLAD
 
-OpenGL by itself doesn't know how to open a window or read your keyboard — those are
+OpenGL by itself doesn't know how to open a window or read your keyboard. Those are
 operating-system specific. Two small libraries fill the gaps:
 
-- **GLFW** — creates the window, sets up the OpenGL "context" (the canvas OpenGL draws
+- **GLFW**: creates the window, sets up the OpenGL "context" (the canvas OpenGL draws
   onto), and reports input (keyboard, mouse, window-close events). This is the only
   external dependency you have to install.
-- **GLAD** — a "function loader." On modern systems, OpenGL functions aren't available
+- **GLAD**: a "function loader." On modern systems, OpenGL functions aren't available
   directly; you have to ask the graphics driver for the address of each one at runtime.
   GLAD does this for you. It's **bundled** in the repo (`src/glad/glad.c`,
   `include/glad/glad.h`), so you don't install it. The line
@@ -240,7 +239,7 @@ struct Mesh {
 ```
 
 Note that `vertices` is a **flat array of floats**, not an array of `Vec3` objects.
-That's because the GPU wants a contiguous block of raw floats — that's the format
+That's because the GPU wants a contiguous block of raw floats; that's the format
 `uploadMesh` ships over. Three floats = one vertex.
 
 Helper methods:
@@ -250,7 +249,7 @@ Helper methods:
   contains all points) and returns its center point. Used to recenter the model on the
   origin so it rotates around its middle instead of an arbitrary corner.
 - `extent()` → returns half the longest side of that bounding box. Used to scale any
-  model — big or small — down to roughly the same on-screen size.
+  model down to roughly the same on-screen size.
 - `expandedColoredVertices()` → produces the GPU-ready array `uploadMesh` actually ships.
   It **de-indexes** the mesh (writes a private copy of each triangle's three vertices),
   tags every triangle with a single grey, and attaches a generated texture coordinate,
@@ -265,9 +264,9 @@ sweeping through every vertex. Both helpers do that sweep.
 Reads a `.obj` text file and produces a `Mesh`. The `.obj` format is line-based plain
 text. This parser handles two line types and ignores the rest:
 
-- `v x y z` — a vertex position. Pushed into a temporary `positions` list.
-- `f a b c ...` — a face, listing vertices that form a polygon.
-- `#` — a comment, skipped. Anything else (normals `vn`, texture coords `vt`,
+- `v x y z`: a vertex position. Pushed into a temporary `positions` list.
+- `f a b c ...`: a face, listing vertices that form a polygon.
+- `#`: a comment, skipped. Anything else (normals `vn`, texture coords `vt`,
   materials, groups) is silently ignored.
 
 Two details worth understanding:
@@ -302,7 +301,7 @@ and prints warnings for malformed lines without crashing.
 
 Owns the window and all GPU resources. This is where most of the raw OpenGL lives.
 
-**Constructor** — initializes GLFW, requests an OpenGL **3.3 Core** context (Core =
+**Constructor**: initializes GLFW, requests an OpenGL **3.3 Core** context (Core =
 modern OpenGL, no deprecated functions), creates the window, loads OpenGL functions via
 GLAD, and enables **depth testing**:
 
@@ -315,12 +314,12 @@ the camera and only draw a new pixel if it's *closer* than what's already there.
 Without it, triangles drawn later would paint over closer ones and the model would look
 inside-out and scrambled.
 
-**`uploadMesh`** — the CPU→GPU transfer. It first calls `mesh.expandedColoredVertices()`
+**`uploadMesh`**: the CPU→GPU transfer. It first calls `mesh.expandedColoredVertices()`
 to get a **de-indexed**, per-face-colored float array (see §9), then creates two objects:
 
-- **VBO (Vertex Buffer Object)** — a block of GPU memory holding the raw vertex floats,
+- **VBO (Vertex Buffer Object)**: a block of GPU memory holding the raw vertex floats,
   now eight per vertex: position `x, y, z` followed by color `r, g, b` and texture `u, v`.
-- **VAO (Vertex Array Object)** — *not* data, but a small recording of "how to interpret
+- **VAO (Vertex Array Object)**: *not* data, but a small recording of "how to interpret
   the VBO." It remembers which buffer to read and the layout of the data. Once set up,
   you just bind the VAO before drawing and OpenGL recalls all those settings.
 
@@ -329,15 +328,15 @@ The layout describes **three** attributes packed into each vertex:
 ```cpp
 const GLsizei stride = 8 * sizeof(float);
 
-// location 0: position — 3 floats, offset 0
+// location 0: position (3 floats, offset 0)
 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
 glEnableVertexAttribArray(0);
 
-// location 1: color — 3 floats, offset 3 floats in
+// location 1: color (3 floats, offset 3 floats in)
 glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
 glEnableVertexAttribArray(1);
 
-// location 2: texture coordinate — 2 floats, offset 6 floats in
+// location 2: texture coordinate (2 floats, offset 6 floats in)
 glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
 glEnableVertexAttribArray(2);
 ```
@@ -348,7 +347,7 @@ The `location` numbers match the `layout (location = ...)` lines in the vertex s
 `GL_STATIC_DRAW` is a hint telling the driver "this data won't change after upload," so
 it can optimize storage.
 
-**`beginFrame`** — clears the screen to dark gray and clears the depth buffer, wiping the
+**`beginFrame`**: clears the screen to dark gray and clears the depth buffer, wiping the
 previous frame so you start fresh:
 
 ```cpp
@@ -356,23 +355,18 @@ glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 ```
 
-**`draw`** — binds the VAO and issues the actual draw command:
+**`draw`**: binds the VAO and issues the actual draw command:
 
 ```cpp
 glDrawArrays(GL_TRIANGLES, 0, _vertexCount);
 ```
 
-"Draw `_vertexCount` vertices as triangles, reading them straight through in order."
-Because the mesh is de-indexed there's no EBO to consult — this used to be a
-`glDrawElements` call over an index array. This is the single call that triggers the whole
-GPU pipeline.
-
-**`endFrame`** — `glfwSwapBuffers` shows the finished frame, and `glfwPollEvents`
+**`endFrame`**: `glfwSwapBuffers` shows the finished frame, and `glfwPollEvents`
 processes keyboard/window events. (The window is **double-buffered**: you draw to a
 hidden "back buffer" and swap it to the visible "front buffer" at the end, so you never
 see a half-drawn frame.)
 
-**Destructor** — deletes the VAO/VBO and terminates GLFW. The class also deletes its
+**Destructor**: deletes the VAO/VBO and terminates GLFW. The class also deletes its
 copy constructor and assignment operator, because copying GPU handles would be a bug
 (two objects would try to free the same GPU resource).
 
@@ -389,11 +383,12 @@ Turns GLSL text files into a usable GPU **shader program**. The constructor:
 4. Deletes the individual shader objects (the linked program no longer needs them).
 
 It checks for errors at each step (`checkCompileErrors`, `checkLinkErrors`) and prints
-the GPU's error log — invaluable, because a typo in GLSL otherwise fails silently.
+the GPU's error log.
 
 **`use()`** calls `glUseProgram` to make this the active program (state machine again).
 
-**Uniform setters** (`setMat4`, `setFloat`, `setInt`, `setBool`) — a **uniform** is a
+**Uniform setters** (`setMat4`, `setFloat`, `setInt`, `setBool`).
+A a **uniform** is a
 variable you send from C++ into a shader that stays constant for an entire draw call
 (as opposed to per-vertex attributes). The MVP matrix is sent this way. Each setter
 finds the variable's location by name with `glGetUniformLocation` and uploads the value
@@ -404,14 +399,13 @@ with a `glUniform*` call. `setMat4` is the one this project actually uses every 
 Turns an image file on disk into a GPU **texture object**. Like `Shader` and `Renderer`,
 it owns a GPU handle, so it forbids copying and frees the handle in its destructor.
 
-The project pulls in no image library (the same self-reliance that drives the custom math
-library), so the loader decodes a **24-bit uncompressed BMP** by hand. Three properties of
+The project pulls in no image library, so the loader decodes a **24-bit uncompressed BMP** by hand. Three properties of
 the BMP format shape the code:
 
 - **Little-endian header fields.** Multi-byte numbers are stored least-significant-byte
   first. The loader reads them byte-by-byte rather than casting a struct, so it's correct
   on any CPU.
-- **Bottom-up rows.** A BMP stores its last scanline first — which happens to match
+- **Bottom-up rows.** A BMP stores its last scanline first, which happens to match
   OpenGL's convention that the first row of pixel data is the *bottom* of the texture, so
   the image comes out upright with no flip. (Top-down BMPs, marked by a negative height,
   are handled too.)
@@ -428,23 +422,22 @@ the texture active on a texture unit so the fragment shader's sampler can read i
 `vt` lines), so they're *generated*, exactly as the per-face greys are. `Mesh` uses a
 **planar projection**: each vertex's X/Y position, normalized into `[0,1]` by the bounding
 box, becomes its `(u, v)`. This is a projection, not an unwrap, so faces that turn edge-on
-to the projection get stretched into streaks — an honest, expected artifact. A spherical
-mapping (longitude/latitude from the model center) would wrap fully and is the natural
-upgrade.
+to the projection get stretched into streaks. On the other hand, a spherical
+mapping (longitude/latitude from the model center) would wrap fully.
 
 ### 7.6 `Camera` (`src/graphics/Camera.cpp`)
 
 A first-person "fly" camera. It stores a `_position` and two angles: **`_yaw`** (turning
 left/right) and **`_pitch`** (looking up/down). From those angles `getFront()` computes a
-direction vector using trigonometry — the standard spherical-to-Cartesian conversion.
+direction vector using trigonometry, the standard spherical-to-Cartesian conversion.
 
-`processInput` reads WASD/QE keys and moves the position along the camera's own axes.
+`processInput` reads WASD/QE keys and moves the position along the camera's own axes (inverted so it's the object the one that looks like it's moving).
 The `right` vector is computed as `front × up` (a **cross product**, which gives a vector
 perpendicular to both). Movement is scaled by `deltaTime` so it's frame-rate independent
 (more on that below).
 
 `getViewMatrix()` calls `Math::lookAt(position, position + front, up)` to build the
-**view matrix** — the transform that moves the whole world so the camera sits at the
+**view matrix**: the transform that moves the whole world so the camera sits at the
 origin looking down −Z. (See the MVP section.)
 
 ### 7.7 `ModelTransform` (`include/graphics/ModelTransform.hpp`)
@@ -457,7 +450,7 @@ keys and Z/X.
 transforms. Because matrix multiplication applies **right-to-left** to a vertex, the
 operations actually happen to the model in this order:
 
-1. **Translate by −center** → move the model so its bounding-box center sits on the origin.
+1. **Translate by center** → move the model so its bounding-box center sits on the origin.
 2. **Scale** → shrink/grow it to unit size.
 3. **Rotate** by roll, then pitch, then yaw.
 
@@ -475,11 +468,11 @@ convention OpenGL expects.
 ### `Vec3` (`include/math/Vec3.hpp`)
 
 A 3D vector with `x, y, z` and the usual operations:
-- `+`, `-`, `* scalar` — component-wise arithmetic.
-- `dot(v)` — the **dot product**, a single number measuring how aligned two vectors are.
-- `cross(v)` — the **cross product**, a vector perpendicular to both inputs (used to find
+- `+`, `-`, `* scalar`: component-wise arithmetic.
+- `dot(v)`: the **dot product**, a single number measuring how aligned two vectors are.
+- `cross(v)`: the **cross product**, a vector perpendicular to both inputs (used to find
   the camera's "right" direction).
-- `length()`, `normalize()`, `normalized()` — magnitude and scaling to unit length. A
+- `length()`, `normalize()`, `normalized()`: magnitude and scaling to unit length. A
   *normalized* vector keeps direction but has length 1, which is what you want for pure
   direction vectors.
 
@@ -492,17 +485,17 @@ A 4D vector `x, y, z, w`. The fourth component `w` is the key to 3D graphics mat
 
 A 4×4 matrix stored as **four `Vec4` columns**: `Vec4 m[4]`. Why 4×4 and not 3×3? Because
 a 3×3 matrix can rotate and scale, but **cannot translate** (move) a point. By going up to
-4 dimensions with that extra `w` component — called **homogeneous coordinates** — a single
+4 dimensions with that extra `w` component (called **homogeneous coordinates**) a single
 4×4 matrix can encode rotation, scaling, *and* translation all at once. That uniformity is
 why all of 3D graphics is built on 4×4 matrices.
 
 The struct provides:
 - A constructor `Mat4(n)` that builds a diagonal matrix; `Mat4(1.0f)` is the **identity**
   matrix (the "do nothing" transform, the matrix equivalent of multiplying by 1).
-- `operator*(Vec4)` — transforms a vector by the matrix.
-- `operator*(Mat4)` — composes two transforms into one. **Order matters**: `A * B` means
+- `operator*(Vec4)`: transforms a vector by the matrix.
+- `operator*(Mat4)`: composes two transforms into one. **Order matters**: `A * B` means
   "apply B first, then A."
-- `data()` — returns a raw `const float*` pointer so the matrix can be handed straight to
+- `data()`: returns a raw `const float*` pointer so the matrix can be handed straight to
   OpenGL via `glUniformMatrix4fv`.
 
 ### `Math` (`include/math/Math.hpp`)
@@ -510,13 +503,13 @@ The struct provides:
 A class of static functions plus the helpers `toRadians`/`toDegrees` and the constant
 `PI`. (Trig functions work in radians, but humans think in degrees, hence the converters.)
 
-- **`translate(m, v)`** — adds a movement to a matrix by updating its last column.
-- **`rotate(m, angle, axis)`** — rotates around an arbitrary axis using the standard
+- **`translate(m, v)`**: adds a movement to a matrix by updating its last column.
+- **`rotate(m, angle, axis)`**: rotates around an arbitrary axis using the standard
   axis-angle rotation formula (Rodrigues' formula expanded into matrix form).
-- **`scale(m, v)`** — multiplies the matrix's basis columns to resize.
-- **`perspective(fov, aspect, near, far)`** — builds the **projection matrix** (next
+- **`scale(m, v)`**: multiplies the matrix's basis columns to resize.
+- **`perspective(fov, aspect, near, far)`**: builds the **projection matrix** (next
   section).
-- **`lookAt(eye, center, up)`** — builds the **view matrix** by constructing an
+- **`lookAt(eye, center, up)`**: builds the **view matrix** by constructing an
   orthonormal basis (right/up/forward) from where the camera is and what it looks at.
 
 ---
@@ -527,7 +520,7 @@ This is the single most important concept in the whole project. To get a 3D poin
 your 2D screen, you pass it through **three matrices**, conventionally called
 **M**, **V**, and **P**, multiplied together into one **MVP** matrix.
 
-Think of each matrix as a change of "frame of reference" — a different coordinate space:
+Think of each matrix as a change of "frame of reference", a different coordinate space:
 
 | Matrix | Name | What it does | "Space" you end up in |
 |--------|------|--------------|------------------------|
@@ -554,12 +547,12 @@ A few notes on the pieces:
 
 - **Why the model is centered and scaled.** `getModelMatrix` recenters using
   `mesh.center()` and scales by `1 / mesh.extent()` so that *any* model, regardless of
-  its original units or position, ends up roughly unit-sized and centered — so it's
+  its original units or position, ends up roughly unit-sized and centered; so it's
   always nicely framed when the program starts.
 - **The projection matrix** is built once with a 45° field of view, the window's aspect
   ratio (800/600), and near/far clipping planes at 0.1 and 100. The clipping planes
   define the range of distances that are actually drawn. Perspective is what makes
-  distant parts of the model look smaller — it's encoded in how this matrix sets up the
+  distant parts of the model look smaller; it's encoded in how this matrix sets up the
   `w` component, which the GPU later divides by ("perspective divide").
 - **The view matrix** comes from the camera each frame, since the camera can move.
 
@@ -593,17 +586,13 @@ void main() {
 }
 ```
 
-Each face of the model carries its own grey, so its surfaces read even before you rotate it. 
-(`basic.vert.glsl`is a leftover from an earlier stage that drew a vertex without any transform 
-— it's not used by the final program, which uses `mvp.vert.glsl`.)
+Each face of the model carries its own grey, so its surfaces read even before you rotate it.
 
 `mix(a, b, t)` returns `a` when `t = 0`, `b` when `t = 1`, and a linear blend in between.
 `useTexture` is driven from C++ by `texMix`, a value that eases smoothly through the whole
-`[0, 1]` range when you press T (see §10) — so this one line gives both the per-face grey,
+`[0, 1]` range when you press T (see §10). So this one line gives both the per-face grey,
 the full texture, and every fade between them. (Holding `useTexture` at exactly `0` or `1`
-would make it a hard switch; animating it is what makes the toggle smooth.) Writing the
-blend as `mix` rather than an `if` is what made that upgrade a main-loop change with no
-shader edit at all.
+would make it a hard switch; animating it is what makes the toggle smooth.)
 
 ### Per-face coloring
 
@@ -613,7 +602,7 @@ lighting model. It rests on three ideas that work together.
 **Color is a per-vertex attribute, not a per-face one.** A GPU can attach data to each
 *vertex* (like position) or send one value for the whole *draw call* (a uniform). "Per
 face" is neither. And because the original mesh uses indexed drawing, a single vertex is
-*shared* by every triangle that touches it — so it has only one color slot and can't be
+*shared* by every triangle that touches it, so it has only one color slot and can't be
 one shade for one face and a different shade for its neighbor.
 
 **De-indexing resolves the conflict.** `Mesh::expandedColoredVertices()` removes the
@@ -626,13 +615,13 @@ all be given the *same* color and there's nothing to fight over. The price is me
 (location 1), the vertex shader copies it into `out vec3 vColor`, and the fragment shader
 reads it as `in vec3 vColor`. A value passed this way from the vertex stage to the
 fragment stage is called a **varying**. Normally the GPU interpolates a varying across the
-triangle, blending the three corners — but since all three corners hold the *same* color
+triangle, blending the three corners, but since all three corners hold the *same* color
 here, there's nothing to blend and the face comes out perfectly flat.
 
 **Choosing the shades.** The grey for triangle *i* is `0.25 + 0.60 * frac(i * φ)`, where
 `φ ≈ 0.618` is the golden-ratio conjugate. Multiplying the index by an irrational number
 and keeping only the fractional part scatters *neighboring* triangles to very different
-shades — instead of a near-invisible gradient — while the `0.25`–`0.85` range keeps them
+shades, instead of a near-invisible gradient, while the `0.25`–`0.85` range keeps them
 out of pure black and white. It's fully deterministic, so a given triangle gets the same
 shade on every run. (To switch from greys to full color later, you'd feed that same
 scrambled value into a hue instead of into all three channels equally.)
@@ -640,7 +629,7 @@ scrambled value into a hue instead of into all three channels equally.)
 One subtlety: this colors per *triangle*, so a face that was a quad in the `.obj` shows up
 as two slightly different shades split along its triangulation diagonal. Coloring per
 *original face* instead would require the parser to remember which triangles came from the
-same `f` line — a small, additive change on top of what's here.
+same `f` line.
 
 ---
 
@@ -695,15 +684,15 @@ motion is measured in "units per second" and feels identical everywhere. This is
 **Why edge-detect the T key?** `glfwGetKey` reports whether a key is *currently* down, and
 the loop runs ~60 times a second, so one human press spans many frames. The toggle
 compares the key's current state to its state last frame and flips only on the
-up-to-down *transition* — otherwise the texture would strobe on and off while T is held.
+up-to-down *transition*, otherwise the texture would strobe on and off while T is held.
 
 **Why two variables for one toggle?** A `bool` has no in-between, so it can only *snap*.
 The fade therefore splits the state in two: `showTexture` is the **target** (where we want
 to be, flipped by T), and `texMix` is the **animated current value** in `[0, 1]` that is
 actually sent to the shader. Each frame `texMix` takes one small step *toward* the target
 rather than jumping to it, and the fragment shader's `mix(vColor, texColor, texMix)` turns
-that number into a blend. The step is `deltaTime / fadeDuration`, so — exactly like camera
-movement — the fade lasts the same wall-clock time (~0.3 s) regardless of frame rate, and
+that number into a blend. The step is `deltaTime / fadeDuration`, so, exactly like camera
+movement, the fade lasts the same wall-clock time (~0.3 s) regardless of frame rate, and
 the value is clamped so the last partial step lands exactly on `0` or `1` instead of
 overshooting. A nice side effect: because `texMix` always chases whatever the target
 currently is, pressing T mid-fade simply reverses the motion smoothly, with no
@@ -715,9 +704,9 @@ currently is, pressing T mid-fade simply reverses the motion smoothly, with no
 
 | Key(s) | Action |
 |--------|--------|
-| **W / S** | Move camera forward / backward |
-| **A / D** | Move camera left / right (strafe) |
-| **Q / E** | Move camera up / down |
+| **W / S** | Move model forward / backward |
+| **A / D** | Move model left / right |
+| **E / Q** | Move model up / down |
 | **← / →** | Rotate model (yaw, around vertical axis) |
 | **↑ / ↓** | Rotate model (pitch, around horizontal axis) |
 | **Z / X** | Roll model (around the front-facing axis) |
@@ -726,81 +715,59 @@ currently is, pressing T mid-fade simply reverses the motion smoothly, with no
 
 ---
 
-## 12. Current limitations / what's not done yet
+## 12. Glossary
 
-Knowing what's *absent* is as instructive as knowing what's present:
-
-- **No normals or texture coordinates** are read from the `.obj` — only `v` (positions)
-  and `f` (faces). Vertex colors are *generated* (per-face greys), not read from the file;
-  `vn` lines are ignored, and `vt` lines are parsed past but not used (texture coordinates 
-  are generated instead — see §7.5).
-- **No lighting.** Faces are shaded with arbitrary per-face greys, not by any light
-  source, so there are no real highlights or shadows — the greys just make adjacent
-  surfaces distinguishable.
-- **Textures use generated UVs, not file UVs.** A 24-bit BMP can be loaded and toggled
-  with **T**, but because `.obj` texture coordinates are ignored, UVs are produced by a
-  planar projection of position. Surfaces facing away from the projection axis are
-  therefore stretched. Only 24-bit uncompressed BMPs are supported.
-- **Fan triangulation assumes convex faces** — concave polygons would triangulate
-  incorrectly, though these are rare in practice.
-- The window size and projection aspect ratio are **hardcoded** to 800×600 and don't
-  update if the window is resized.
-
----
-
-## 13. Glossary
-
-- **Vertex** — a single point in 3D space (`x, y, z`).
-- **Index / Element** — an integer referencing a vertex, used to build triangles without
+- **Vertex**: a single point in 3D space (`x, y, z`).
+- **Index / Element**: an integer referencing a vertex, used to build triangles without
   duplicating vertex data.
-- **Mesh** — a model as vertices + indices.
-- **Shader** — a small GPU program (vertex shader = position, fragment shader = color).
-- **GLSL** — the C-like language shaders are written in.
-- **VAO / VBO / EBO** — GPU objects: VAO records *how* to read vertex data; VBO holds the
+- **Mesh**: a model as vertices + indices.
+- **Shader**: a small GPU program (vertex shader = position, fragment shader = color).
+- **GLSL**: the C-like language shaders are written in.
+- **VAO / VBO / EBO**: GPU objects: VAO records *how* to read vertex data; VBO holds the
   vertex floats; EBO holds the indices. Since the mesh is de-indexed for per-face color,
   the current build uses only a VAO and VBO.
-- **Uniform** — a variable sent from CPU to a shader, constant for one draw call (e.g.
+- **Uniform**: a variable sent from CPU to a shader, constant for one draw call (e.g.
   the MVP matrix).
-- **Attribute** — per-vertex input to the vertex shader (e.g. position at location 0,
+- **Attribute**: per-vertex input to the vertex shader (e.g. position at location 0,
   per-face color at location 1).
-- **Varying** — a value the vertex shader outputs and the fragment shader receives,
+- **Varying**: a value the vertex shader outputs and the fragment shader receives,
   interpolated across the triangle by default (e.g. the per-face color `vColor`).
-- **De-indexing (unwelding)** — expanding indexed geometry so each triangle owns a private
+- **De-indexing (unwelding)**: expanding indexed geometry so each triangle owns a private
   copy of its three vertices instead of sharing them; needed so each face can carry its
   own color.
-- **MVP** — Model × View × Projection, the combined transform from 3D model space to 2D
+- **MVP**: Model × View × Projection, the combined transform from 3D model space to 2D
   screen space.
-- **Model / World / View / Clip space** — successive coordinate systems a vertex passes
+- **Model / World / View / Clip space**: successive coordinate systems a vertex passes
   through.
-- **Homogeneous coordinates** — using a 4th component `w` so that a single 4×4 matrix can
+- **Homogeneous coordinates**: using a 4th component `w` so that a single 4×4 matrix can
   represent translation as well as rotation/scaling.
-- **Projection** — the step that creates the perspective effect (distant = smaller).
-- **Rasterization** — converting a triangle into the pixels it covers.
-- **Depth test (Z-buffer)** — per-pixel distance tracking so nearer surfaces correctly
+- **Projection**: the step that creates the perspective effect (distant = smaller).
+- **Rasterization**: converting a triangle into the pixels it covers.
+- **Depth test (Z-buffer)**: per-pixel distance tracking so nearer surfaces correctly
   hide farther ones.
-- **Double buffering** — drawing to a hidden buffer and swapping it in, to avoid showing
+- **Double buffering**: drawing to a hidden buffer and swapping it in, to avoid showing
   half-drawn frames.
-- **Delta time** — real seconds elapsed since the previous frame, used to keep motion
+- **Delta time**: real seconds elapsed since the previous frame, used to keep motion
   speed consistent across machines.
-- **GLFW** — library for windowing and input.
-- **GLAD** — library that loads OpenGL function pointers at runtime.
-- **Wavefront OBJ** — a plain-text 3D model file format.
-- **Column-major** — the matrix storage order OpenGL expects.
-- **Texture** — a 2D image stored in GPU memory and sampled onto a surface.
-- **Texel** — a single cell of a texture image (the texture analogue of a pixel).
-- **Texture coordinate (UV)** — a 2D coordinate in `[0, 1]` naming a point in the texture
+- **GLFW**: library for windowing and input.
+- **GLAD**: library that loads OpenGL function pointers at runtime.
+- **Wavefront OBJ**: a plain-text 3D model file format.
+- **Column-major**: the matrix storage order OpenGL expects.
+- **Texture**: a 2D image stored in GPU memory and sampled onto a surface.
+- **Texel**: a single cell of a texture image (the texture analogue of a pixel).
+- **Texture coordinate (UV)**: a 2D coordinate in `[0, 1]` naming a point in the texture
   image; `(0,0)` and `(1,1)` are opposite corners. Attached per vertex, interpolated across
   each triangle.
-- **Sampler** — the fragment-shader object (`sampler2D`) that reads a texture at a given UV.
-- **Wrapping** — how UVs outside `[0, 1]` are handled (e.g. `GL_REPEAT` tiles the image).
-- **Filtering** — how texels are blended when the texture is scaled on screen
+- **Sampler**: the fragment-shader object (`sampler2D`) that reads a texture at a given UV.
+- **Wrapping**: how UVs outside `[0, 1]` are handled (e.g. `GL_REPEAT` tiles the image).
+- **Filtering**: how texels are blended when the texture is scaled on screen
   (`GL_NEAREST` = blocky, `GL_LINEAR` = smooth).
-- **Mipmap** — a chain of pre-shrunk copies of a texture, sampled when a surface is small
+- **Mipmap**: a chain of pre-shrunk copies of a texture, sampled when a surface is small
   on screen to avoid aliasing.
-- **Planar projection** — generating UVs by projecting vertex positions onto a plane;
+- **Planar projection**: generating UVs by projecting vertex positions onto a plane;
   simple but stretches surfaces that face away from the projection axis.
-- **BMP** — a simple, uncompressed raster image format; the one this viewer can load.
-- **Easing toward a target** — animating a value by moving it a fraction of the remaining
+- **BMP**: a simple, uncompressed raster image format; the one this viewer can load.
+- **Easing toward a target**: animating a value by moving it a fraction of the remaining
   distance toward a goal each frame (scaled by delta time), rather than snapping. Used for
   the smooth texture fade: the target is a boolean mode, the eased value is the `[0, 1]`
   blend factor sent to the shader.
