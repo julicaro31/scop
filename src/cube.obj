@@ -1,0 +1,24 @@
+# Simple cube
+# 8 vertices, 6 quad faces (triangulated by parser into 12 triangles)
+
+v -0.5 -0.5  0.5
+v  0.5 -0.5  0.5
+v  0.5  0.5  0.5
+v -0.5  0.5  0.5
+v -0.5 -0.5 -0.5
+v  0.5 -0.5 -0.5
+v  0.5  0.5 -0.5
+v -0.5  0.5 -0.5
+
+# Front
+f 1 2 3 4
+# Back
+f 6 5 8 7
+# Right
+f 2 6 7 3
+# Left
+f 5 1 4 8
+# Top
+f 4 3 7 8
+# Bottom
+f 5 6 2 1
